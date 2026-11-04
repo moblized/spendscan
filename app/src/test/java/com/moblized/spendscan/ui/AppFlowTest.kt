@@ -2,6 +2,7 @@ package com.moblized.spendscan.ui
 
 import android.content.ComponentName
 import android.content.pm.PackageManager
+import android.os.Looper
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasSetTextAction
@@ -14,12 +15,18 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToString
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.moblized.spendscan.App
 import com.moblized.spendscan.MainActivity
 import com.moblized.spendscan.data.Money
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -27,6 +34,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 /** Runs the real app, database and all, the way a person would use it. Only the camera and text reader are left out. */
@@ -65,14 +73,24 @@ class AppFlowTest {
         }
     }
 
-    /** When something never appears, shows what was on screen and what every thread was doing. */
+    /** When something never appears, shows what was on screen and what the app was waiting for. */
     private fun explain(text: String) {
         println("NEVER APPEARED: $text")
-        runCatching { compose.onAllNodes(isRoot()).printToString() }.onSuccess(::println).onFailure { println("no tree: $it") }
+        runCatching { compose.onAllNodes(isRoot()).printToString(maxDepth = 12) }.onSuccess(::println).onFailure { println("no tree: $it") }
+        scenario.onActivity { activity ->
+            val model = ViewModelProvider(activity)[AppModel::class.java]
+            println("STATE app=${activity.application === app} stack=${model.stack.value} tab=${model.tab.value} summary=${model.summary.value?.month} categories=${model.categories.value.size} reading=${model.reading.value} lifecycle=${activity.lifecycle.currentState}")
+        }
+        println("DB direct: " + runCatching { runBlocking { withTimeout(4000) { app.dao.categoryCount() } } })
+        println("DB flow: " + runCatching { runBlocking { withTimeout(4000) { app.dao.receiptsBetween(0, 1).first().size } } })
+        var ran = false
+        CoroutineScope(Dispatchers.Main).launch { ran = true }
+        compose.waitForIdle()
+        println("Main dispatcher ran: $ran; main looper idle=${Shadows.shadowOf(Looper.getMainLooper()).isIdle}")
         Thread.getAllStackTraces().forEach { (thread, stack) ->
-            if (stack.any { it.className.startsWith("androidx.") || it.className.startsWith("kotlinx.") || it.className.contains("sqlite", true) }) {
+            if (stack.any { it.className.startsWith("androidx.") || it.className.contains("sqlite", true) }) {
                 println("THREAD ${thread.name} ${thread.state}")
-                stack.take(25).forEach { println("    $it") }
+                stack.take(14).forEach { println("    $it") }
             }
         }
     }
