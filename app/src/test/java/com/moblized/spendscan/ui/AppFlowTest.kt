@@ -59,7 +59,6 @@ class AppFlowTest {
     @After
     fun stop() {
         scenario.close()
-        app.db.close()
     }
 
     private fun waitFor(text: String, substring: Boolean = false) {
@@ -122,6 +121,20 @@ class AppFlowTest {
     }
 
     private fun money(cents: Long) = Money.format(cents)
+
+    @Test
+    fun reopeningTheAppKeepsWorking() {
+        addByHand("Kroger", "45.20")
+        waitFor("Spent so far")
+        // Back out of the app and open it again while the process is still alive.
+        scenario.close()
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        waitFor("Spent so far")
+        waitFor("See all 1 receipt")
+        // Turning the phone keeps everything too.
+        scenario.recreate()
+        waitFor("See all 1 receipt")
+    }
 
     @Test
     fun startsOnAnEmptyMonth() {
