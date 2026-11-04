@@ -3,7 +3,6 @@ package com.moblized.spendscan.data
 import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import com.moblized.spendscan.App
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -26,6 +25,7 @@ class DatabaseTest {
     @Before
     fun open() {
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), AppDatabase::class.java)
+            .addCallback(AppDatabase.StartingCategories)
             .allowMainThreadQueries()
             .build()
         dao = db.dao()
@@ -35,9 +35,7 @@ class DatabaseTest {
     fun close() = db.close()
 
     @Test
-    fun seedsCategoriesOnce() = runTest {
-        App.seedCategories(dao)
-        App.seedCategories(dao)
+    fun startsWithTheDefaultCategories() = runTest {
         val cats = dao.categoriesNow()
         assertEquals(DEFAULT_CATEGORIES.size + 1, cats.size)
         assertEquals("Groceries", cats.first().name)
@@ -97,7 +95,6 @@ class DatabaseTest {
 
     @Test
     fun deletingACategoryMovesItsReceipts() = runTest {
-        App.seedCategories(dao)
         val cats = dao.categoriesNow()
         val groceries = cats.first()
         val other = cats.last()

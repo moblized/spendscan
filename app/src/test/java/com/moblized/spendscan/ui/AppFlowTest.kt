@@ -81,7 +81,7 @@ class AppFlowTest {
             val model = ViewModelProvider(activity)[AppModel::class.java]
             println("STATE app=${activity.application === app} stack=${model.stack.value} tab=${model.tab.value} summary=${model.summary.value?.month} categories=${model.categories.value.size} reading=${model.reading.value} lifecycle=${activity.lifecycle.currentState}")
         }
-        println("DB direct: " + runCatching { runBlocking { withTimeout(4000) { app.dao.categoryCount() } } })
+        println("DB direct: " + runCatching { runBlocking { withTimeout(4000) { app.dao.categoriesNow().size } } })
         println("DB flow: " + runCatching { runBlocking { withTimeout(4000) { app.dao.receiptsBetween(0, 1).first().size } } })
         var ran = false
         CoroutineScope(Dispatchers.Main).launch { ran = true }

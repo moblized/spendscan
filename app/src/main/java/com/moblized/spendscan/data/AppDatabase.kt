@@ -10,6 +10,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -20,9 +21,6 @@ interface SpendDao {
 
     @Query("SELECT * FROM categories ORDER BY fixed ASC, position ASC, id ASC")
     suspend fun categoriesNow(): List<Category>
-
-    @Query("SELECT COUNT(*) FROM categories")
-    suspend fun categoryCount(): Int
 
     @Insert
     suspend fun insertCategory(category: Category): Long
@@ -124,7 +122,22 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): SpendDao
 
     companion object {
+        /** Fills in the starting categories as part of creating the database, so nothing can read it half set up. */
+        val StartingCategories = object : Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                val names = DEFAULT_CATEGORIES + FALLBACK_CATEGORY
+                names.forEachIndexed { i, name ->
+                    db.execSQL(
+                        "INSERT INTO categories (name, position, fixed) VALUES (?, ?, ?)",
+                        arrayOf<Any>(name, i, if (name == FALLBACK_CATEGORY) 1 else 0),
+                    )
+                }
+            }
+        }
+
         fun open(context: Context): AppDatabase =
-            Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "spendscan.db").build()
+            Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "spendscan.db")
+                .addCallback(StartingCategories)
+                .build()
     }
 }
