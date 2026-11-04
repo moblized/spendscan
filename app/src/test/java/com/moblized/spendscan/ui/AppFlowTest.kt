@@ -2,8 +2,10 @@ package com.moblized.spendscan.ui
 
 import android.content.ComponentName
 import android.content.pm.PackageManager
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -11,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.printToString
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.moblized.spendscan.App
@@ -52,8 +55,25 @@ class AppFlowTest {
     }
 
     private fun waitFor(text: String, substring: Boolean = false) {
-        compose.waitUntil(timeoutMillis = 15_000) {
-            compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        try {
+            compose.waitUntil(timeoutMillis = 15_000) {
+                compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (e: ComposeTimeoutException) {
+            explain(text)
+            throw e
+        }
+    }
+
+    /** When something never appears, shows what was on screen and what every thread was doing. */
+    private fun explain(text: String) {
+        println("NEVER APPEARED: $text")
+        runCatching { compose.onAllNodes(isRoot()).printToString() }.onSuccess(::println).onFailure { println("no tree: $it") }
+        Thread.getAllStackTraces().forEach { (thread, stack) ->
+            if (stack.any { it.className.startsWith("androidx.") || it.className.startsWith("kotlinx.") || it.className.contains("sqlite", true) }) {
+                println("THREAD ${thread.name} ${thread.state}")
+                stack.take(25).forEach { println("    $it") }
+            }
         }
     }
 

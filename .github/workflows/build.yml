@@ -62,6 +62,17 @@ jobs:
             gh release create screenshots --prerelease --title "UI screenshots" --notes "Rendered by CI from the latest build."
           gh release upload screenshots app/build/screenshots/*.png --clobber
 
+      - name: Publish test logs
+        if: steps.gradle.outcome == 'failure'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null || exit 0
+          gh release view screenshots >/dev/null 2>&1 || \
+            gh release create screenshots --prerelease --title "UI screenshots" --notes "Rendered by CI from the latest build."
+          gh release upload screenshots app/build/test-results/testDebugUnitTest/*.xml --clobber
+
       - name: Report errors
         if: steps.gradle.outcome == 'failure'
         run: |
