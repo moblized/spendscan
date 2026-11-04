@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsNodeInteraction
-import androidx.compose.ui.test.and
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasSetTextAction
