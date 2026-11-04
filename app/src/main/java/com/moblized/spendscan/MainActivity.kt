@@ -13,6 +13,9 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
@@ -20,7 +23,9 @@ import com.moblized.spendscan.ui.AppModel
 import com.moblized.spendscan.ui.AppRoot
 
 class MainActivity : ComponentActivity() {
-    private val model: AppModel by viewModels()
+    private val model: AppModel by viewModels {
+        viewModelFactory { initializer { AppModel(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as App) } }
+    }
 
     private val scanLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
