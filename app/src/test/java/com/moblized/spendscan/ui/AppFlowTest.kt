@@ -24,9 +24,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.moblized.spendscan.App
 import com.moblized.spendscan.MainActivity
 import com.moblized.spendscan.data.Money
+import com.moblized.spendscan.server.FakeHttpServer
 import com.moblized.spendscan.server.ServerConfig
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpServer
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.runBlocking
@@ -40,7 +39,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
-import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.time.LocalDate
 
@@ -335,24 +333,13 @@ class AppFlowTest {
     }
 
     /** A stand-in for a language model server: answers like Ollama or LM Studio would. */
-    private fun fakeServer(answer: String): HttpServer {
-        val http = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        http.createContext("/v1/models") { ex -> ex.reply(200, """{"data":[{"id":"nomic-embed-text"},{"id":"llama3.2:latest"},{"id":"qwen3-vl:8b"}]}""") }
-        http.createContext("/v1/chat/completions") { ex ->
-            ex.requestBody.readBytes()
-            ex.reply(200, JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", answer)))).toString())
+    private fun fakeServer(answer: String) = FakeHttpServer { request ->
+        when (request.path) {
+            "/v1/models" -> 200 to """{"data":[{"id":"nomic-embed-text"},{"id":"llama3.2:latest"},{"id":"qwen3-vl:8b"}]}"""
+            "/v1/chat/completions" -> 200 to JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", answer)))).toString()
+            else -> 404 to "{}"
         }
-        http.start()
-        return http
     }
-
-    private fun HttpExchange.reply(code: Int, body: String) {
-        val bytes = body.toByteArray()
-        sendResponseHeaders(code, bytes.size.toLong())
-        responseBody.use { it.write(bytes) }
-    }
-
-    private fun address(http: HttpServer) = "http://127.0.0.1:${http.address.port}"
 
     /** Shares a small real photo with the app, as if it had just been scanned. */
     private fun sharePhoto() {
@@ -378,7 +365,7 @@ class AppFlowTest {
                "payment":"Visa 4242","category":"Groceries","items":[{"name":"2% Milk","quantity":1,"amount":3.49},{"name":"Bread","quantity":1,"amount":2.99}]}""",
         )
         try {
-            app.prefs.setServer(ServerConfig(address(http), model = "qwen3-vl:8b"))
+            app.prefs.setServer(ServerConfig(http.address, model = "qwen3-vl:8b"))
             sharePhoto()
             waitLong("Read by your server.")
             waitFor("Check this receipt")
@@ -391,7 +378,7 @@ class AppFlowTest {
             assertEquals(45L, saved.taxCents)
             assertEquals("Visa 4242", saved.payment)
         } finally {
-            http.stop(0)
+            http.close()
         }
     }
 
@@ -415,7 +402,7 @@ class AppFlowTest {
             tap("Find models")
             waitFor("Add the server's address first.")
 
-            compose.onNode(hasSetTextAction() and hasText("http://192.168.1.20:11434")).performTextInput(address(http))
+            compose.onNode(hasSetTextAction() and hasText("http://192.168.1.20:11434")).performTextInput(http.address)
             tap("Find models")
             waitFor("Connected. Pick a model that can read images.")
             // Embedding models are left out, and one that can see photos is picked to start.
@@ -423,10 +410,10 @@ class AppFlowTest {
             assertEquals("qwen3-vl:8b", app.prefs.server.value.model)
             tap("llama3.2:latest")
             compose.waitUntil(timeoutMillis = 5_000) { app.prefs.server.value.model == "llama3.2:latest" }
-            assertEquals(address(http), app.prefs.server.value.url)
+            assertEquals(http.address, app.prefs.server.value.url)
             waitFor("Receipts and photos are kept on this phone. Photos of new scans also go to your server. The app only goes online for that and to check for updates.")
         } finally {
-            http.stop(0)
+            http.close()
         }
     }
 

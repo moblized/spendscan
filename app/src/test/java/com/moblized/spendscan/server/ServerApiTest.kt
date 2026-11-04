@@ -3,7 +3,6 @@ package com.moblized.spendscan.server
 import android.app.Application
 import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
-import com.sun.net.httpserver.HttpServer
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -19,9 +18,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
-import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.time.LocalDate
+import java.util.concurrent.CopyOnWriteArrayList
 
 /** Real HTTP against a stand-in server, including the ways real servers turn requests down. */
 @RunWith(RobolectricTestRunner::class)
@@ -32,9 +31,9 @@ class ServerApiTest {
     private val api = ServerApi()
     private val goodAnswer = """{"store":"Kroger","date":"2026-11-02","total":6.93,"subtotal":6.48,"tax":0.45,"tip":null,"discount":null,"payment":"Visa 4242","category":"Groceries","items":[{"name":"Milk","quantity":2,"amount":3.49}]}"""
 
-    private lateinit var http: HttpServer
-    private val requests = ArrayList<JSONObject>()
-    private var authHeader: String? = null
+    private lateinit var http: FakeHttpServer
+    private val requests = CopyOnWriteArrayList<JSONObject>()
+    @Volatile private var authHeader: String? = null
     /** Decides each answer from the request: (status, what the model wrote). */
     private var respond: (JSONObject) -> Pair<Int, String> = { 200 to goodAnswer }
 
@@ -42,35 +41,30 @@ class ServerApiTest {
 
     @Before
     fun start() {
-        http = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        http.createContext("/v1/models") { ex ->
-            authHeader = ex.requestHeaders.getFirst("Authorization")
-            val code = if (authHeader == "Bearer wrong") 401 else 200
-            val body = """{"data":[{"id":"qwen3-vl:8b"},{"id":"llama3.2:latest"}]}""".toByteArray()
-            ex.sendResponseHeaders(code, body.size.toLong())
-            ex.responseBody.use { it.write(body) }
+        http = FakeHttpServer { request ->
+            authHeader = request.header("Authorization")
+            when (request.path) {
+                "/v1/models" -> (if (authHeader == "Bearer wrong") 401 else 200) to """{"data":[{"id":"qwen3-vl:8b"},{"id":"llama3.2:latest"}]}"""
+                "/v1/chat/completions" -> {
+                    val sent = JSONObject(request.body)
+                    requests += sent
+                    val (code, content) = respond(sent)
+                    code to (
+                        if (code == 200) JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString()
+                        else """{"error":"$content"}"""
+                        )
+                }
+                else -> 404 to "{}"
+            }
         }
-        http.createContext("/v1/chat/completions") { ex ->
-            authHeader = ex.requestHeaders.getFirst("Authorization")
-            val request = JSONObject(ex.requestBody.readBytes().decodeToString())
-            requests += request
-            val (code, content) = respond(request)
-            val body = (
-                if (code == 200) JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", content)))).toString()
-                else """{"error":"$content"}"""
-                ).toByteArray()
-            ex.sendResponseHeaders(code, body.size.toLong())
-            ex.responseBody.use { it.write(body) }
-        }
-        http.start()
         photo = File(ApplicationProvider.getApplicationContext<Application>().cacheDir, "page.jpg")
         photo.outputStream().use { Bitmap.createBitmap(300, 600, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.JPEG, 80, it) }
     }
 
     @After
-    fun stop() = http.stop(0)
+    fun stop() = http.close()
 
-    private val config get() = ServerConfig("127.0.0.1:${http.address.port}", model = "qwen3-vl:8b")
+    private val config get() = ServerConfig(http.address, model = "qwen3-vl:8b")
 
     private fun read(text: String? = "KROGER 6.93", pages: List<File> = listOf(photo)) =
         api.read(config, pages, text, listOf("Groceries", "Other"), today)
