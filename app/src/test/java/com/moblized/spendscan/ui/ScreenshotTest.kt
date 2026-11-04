@@ -33,6 +33,7 @@ import com.moblized.spendscan.data.ReceiptRow
 import com.moblized.spendscan.data.ThemeChoice
 import com.moblized.spendscan.parse.ReceiptField
 import com.moblized.spendscan.parse.ReceiptParser
+import com.moblized.spendscan.server.ServerConfig
 import com.moblized.spendscan.ui.theme.LocalSlip
 import com.moblized.spendscan.ui.theme.SpendTheme
 import org.junit.Rule
@@ -236,9 +237,27 @@ class ScreenshotTest {
     @Test
     fun settings() = shoot("15_settings") {
         Column(Modifier.fillMaxSize()) {
-            SettingsScreen(ThemeChoice.SYSTEM, {}, 14, {}, "1.0.1", "You have the latest version.", {}, Modifier.weight(1f))
+            SettingsScreen(
+                ThemeChoice.SYSTEM, {}, 14, {}, "1.0.1", "You have the latest version.", {},
+                ServerConfig(), {}, emptyList(), null, {}, Modifier.weight(1f),
+            )
             BottomBar(Tab.SETTINGS, {}, {})
         }
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h1300dp-xxhdpi")
+    fun settingsWithServer() = shoot("18_settings_server", dark = true) {
+        SettingsScreen(
+            ThemeChoice.SYSTEM, {}, 14, {}, "1.0.1", null, {},
+            ServerConfig("http://192.168.1.20:11434", model = "qwen3-vl:8b"), {},
+            listOf("gemma3:12b", "qwen3-vl:8b", "llama3.2:latest"), "Connected. Pick a model that can read images.", {},
+        )
+    }
+
+    @Test
+    fun reviewReadByServer() = shoot("19_review_server") {
+        ReviewScreen(parsedDraft.copy(readNote = "Read by your server."), cats, { File(it) }, {}, {}, {})
     }
 
     @Test

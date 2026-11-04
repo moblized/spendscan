@@ -3,6 +3,7 @@ package com.moblized.spendscan.ui
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsNodeInteraction
@@ -23,6 +24,11 @@ import androidx.test.core.app.ApplicationProvider
 import com.moblized.spendscan.App
 import com.moblized.spendscan.MainActivity
 import com.moblized.spendscan.data.Money
+import com.moblized.spendscan.server.ServerConfig
+import com.sun.net.httpserver.HttpExchange
+import com.sun.net.httpserver.HttpServer
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -32,7 +38,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.time.LocalDate
 
 /** Runs the real app, database and all, the way a person would use it. Only the camera and text reader are left out. */
@@ -323,6 +332,113 @@ class AppFlowTest {
         tap("Light")
         compose.waitUntil(timeoutMillis = 5_000) { state("LauncherLight") == PackageManager.COMPONENT_ENABLED_STATE_ENABLED }
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED, state("LauncherDark"))
+    }
+
+    /** A stand-in for a language model server: answers like Ollama or LM Studio would. */
+    private fun fakeServer(answer: String): HttpServer {
+        val http = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        http.createContext("/v1/models") { ex -> ex.reply(200, """{"data":[{"id":"nomic-embed-text"},{"id":"llama3.2:latest"},{"id":"qwen3-vl:8b"}]}""") }
+        http.createContext("/v1/chat/completions") { ex ->
+            ex.requestBody.readBytes()
+            ex.reply(200, JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", answer)))).toString())
+        }
+        http.start()
+        return http
+    }
+
+    private fun HttpExchange.reply(code: Int, body: String) {
+        val bytes = body.toByteArray()
+        sendResponseHeaders(code, bytes.size.toLong())
+        responseBody.use { it.write(bytes) }
+    }
+
+    private fun address(http: HttpServer) = "http://127.0.0.1:${http.address.port}"
+
+    /** Shares a small real photo with the app, as if it had just been scanned. */
+    private fun sharePhoto() {
+        scenario.close()
+        val photo = File(app.cacheDir, "receipt.jpg")
+        photo.outputStream().use { Bitmap.createBitmap(120, 240, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.JPEG, 80, it) }
+        val share = Intent(app, MainActivity::class.java)
+            .setAction(Intent.ACTION_SEND)
+            .setType("image/jpeg")
+            .putExtra(Intent.EXTRA_STREAM, Uri.fromFile(photo))
+        scenario = ActivityScenario.launch(share)
+    }
+
+    private fun waitLong(text: String) = compose.waitUntil(timeoutMillis = 90_000) {
+        compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun aScanIsReadByYourServer() {
+        val http = fakeServer(
+            """{"store":"Kroger","date":"${LocalDate.now()}","total":6.93,"subtotal":6.48,"tax":0.45,"tip":null,"discount":null,
+               "payment":"Visa 4242","category":"Groceries","items":[{"name":"2% Milk","quantity":1,"amount":3.49},{"name":"Bread","quantity":1,"amount":2.99}]}""",
+        )
+        try {
+            app.prefs.setServer(ServerConfig(address(http), model = "qwen3-vl:8b"))
+            sharePhoto()
+            waitLong("Read by your server.")
+            waitFor("Check this receipt")
+            waitFor("Items (2)")
+            tap("Save receipt")
+            waitFor("Saved Kroger, ${money(693)}.")
+            assertEquals("Groceries", runBlocking { app.dao.categoriesNow() }.first().name)
+            val saved = runBlocking { app.dao.receiptsNow() }.single()
+            assertEquals(runBlocking { app.dao.categoriesNow() }.first().id, saved.categoryId)
+            assertEquals(45L, saved.taxCents)
+            assertEquals("Visa 4242", saved.payment)
+        } finally {
+            http.stop(0)
+        }
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun aServerThatDoesntAnswerFallsBackToThePhone() {
+        // Nothing listens on this port.
+        val closed = ServerSocket(0).use { it.localPort }
+        app.prefs.setServer(ServerConfig("http://127.0.0.1:$closed", model = "qwen3-vl:8b"))
+        sharePhoto()
+        waitLong("Your server didn't answer, so this phone read it.")
+        waitFor("Check this receipt")
+    }
+
+    @Test
+    fun yourServerIsSetUpInSettings() {
+        val http = fakeServer("{}")
+        try {
+            tap("Settings")
+            waitFor("Language model server")
+            tap("Find models")
+            waitFor("Add the server's address first.")
+
+            compose.onNode(hasSetTextAction() and hasText("http://192.168.1.20:11434")).performTextInput(address(http))
+            tap("Find models")
+            waitFor("Connected. Pick a model that can read images.")
+            // Embedding models are left out, and one that can see photos is picked to start.
+            compose.onAllNodesWithText("nomic-embed-text").assertCountEquals(0)
+            assertEquals("qwen3-vl:8b", app.prefs.server.value.model)
+            tap("llama3.2:latest")
+            compose.waitUntil(timeoutMillis = 5_000) { app.prefs.server.value.model == "llama3.2:latest" }
+            assertEquals(address(http), app.prefs.server.value.url)
+            waitFor("Receipts and photos are kept on this phone. Photos of new scans also go to your server. The app only goes online for that and to check for updates.")
+        } finally {
+            http.stop(0)
+        }
+    }
+
+    @Test
+    fun aBadServerAddressSaysWhatToCheck() {
+        val closed = ServerSocket(0).use { it.localPort }
+        tap("Settings")
+        compose.onNode(hasSetTextAction() and hasText("http://192.168.1.20:11434")).performTextInput("http://127.0.0.1:$closed")
+        tap("Find models")
+        compose.waitUntil(timeoutMillis = 30_000) {
+            compose.onAllNodesWithText("Couldn't reach that address", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Test

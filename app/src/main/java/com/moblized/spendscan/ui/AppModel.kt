@@ -25,10 +25,18 @@ import com.moblized.spendscan.export.Csv
 import com.moblized.spendscan.parse.Chains
 import com.moblized.spendscan.parse.ReceiptParser
 import com.moblized.spendscan.scan.ReceiptOcr
+import com.moblized.spendscan.server.ModelList
+import com.moblized.spendscan.server.ServerConfig
+import com.moblized.spendscan.server.ServerMerge
+import com.moblized.spendscan.server.ServerModels
+import com.moblized.spendscan.server.ServerOutcome
+import com.moblized.spendscan.server.ServerProblem
 import com.moblized.spendscan.update.AppRelease
 import com.moblized.spendscan.update.Updates
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,12 +48,16 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
 
 enum class Tab { MONTH, RECEIPTS, BUDGETS, SETTINGS }
+
+/** What's happening to a scan: the phone reads it first, then your server if you have one. */
+enum class ReadingStage { NONE, PHONE, SERVER }
 
 sealed interface Route {
     data object Tabs : Route
@@ -160,22 +172,103 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     fun photoFile(name: String): File = app.photos.file(name)
 
     // Scanning
-    val reading = MutableStateFlow(false)
+    val reading = MutableStateFlow(ReadingStage.NONE)
     val scannerUnavailable = MutableStateFlow(false)
+    private var skipServer: CompletableDeferred<Unit>? = null
 
     /** Pages came back from the scanner, or a photo was picked or shared. */
     fun onPages(pages: List<Uri>) {
         if (pages.isEmpty()) return
-        reading.value = true
+        reading.value = ReadingStage.PHONE
         viewModelScope.launch {
+            val today = LocalDate.now()
             val photos = app.photos.import(pages)
-            val parsed = runCatching {
-                val lines = ReceiptOcr.read(app, photos.map(app.photos::file))
-                withContext(Dispatchers.Default) { ReceiptParser.parse(ReceiptParser.rows(lines)) }
+            val files = photos.map(app.photos::file)
+            val phone = runCatching {
+                val lines = ReceiptOcr.read(app, files)
+                withContext(Dispatchers.Default) { ReceiptParser.parse(ReceiptParser.rows(lines), today) }
             }.getOrNull()
-            val categoryId = pickCategory(parsed?.store, parsed?.suggestedCategory)
-            startDraft(Draft.fromParsed(parsed, photos, LocalDate.now(), categoryId))
-            reading.value = false
+
+            var reading = phone
+            var note: String? = null
+            val config = prefs.server.value
+            if (config.isSet && photos.isNotEmpty()) {
+                this@AppModel.reading.value = ReadingStage.SERVER
+                val categories = dao.categoriesNow().map { it.name }
+                val skip = CompletableDeferred<Unit>().also { skipServer = it }
+                val call = async(Dispatchers.IO) {
+                    runCatching { app.server.read(config, files, phone?.rawText, categories, today) }
+                        .getOrDefault(ServerOutcome.Failed(ServerProblem.NO_USABLE_ANSWER))
+                }
+                val outcome = select<ServerOutcome?> {
+                    call.onAwait { it }
+                    skip.onAwait { null }
+                }
+                call.cancel()
+                skipServer = null
+                when (outcome) {
+                    is ServerOutcome.Read -> {
+                        reading = ServerMerge.merge(outcome.receipt, phone, today)
+                        note = if (outcome.usedPhoto) "Read by your server." else "Read by your server from the phone's text, because this model can't see photos."
+                    }
+                    is ServerOutcome.Failed -> note = when (outcome.problem) {
+                        ServerProblem.UNREACHABLE -> "Your server didn't answer, so this phone read it."
+                        ServerProblem.REFUSED -> "Your server turned down the API key, so this phone read it."
+                        ServerProblem.NO_USABLE_ANSWER -> "Your server's answer couldn't be used, so this phone read it."
+                    }
+                    null -> note = "Read by this phone."
+                }
+            }
+
+            val categoryId = pickCategory(reading?.store, reading?.suggestedCategory)
+            startDraft(Draft.fromParsed(reading, photos, today, categoryId, note))
+            this@AppModel.reading.value = ReadingStage.NONE
+        }
+    }
+
+    /** Stops waiting for the server and uses what the phone read. */
+    fun usePhoneReading() {
+        skipServer?.complete(Unit)
+    }
+
+    // Your language model server
+    val server: StateFlow<ServerConfig> = prefs.server
+    val serverModels = MutableStateFlow<List<String>>(emptyList())
+    val serverStatus = MutableStateFlow<String?>(null)
+
+    fun setServer(config: ServerConfig) {
+        prefs.setServer(config)
+    }
+
+    fun findModels() {
+        val config = prefs.server.value
+        if (config.url.isBlank()) {
+            serverStatus.value = "Add the server's address first."
+            return
+        }
+        serverStatus.value = "Checking..."
+        serverModels.value = emptyList()
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { app.server.models(config) }
+            when (result) {
+                is ModelList.Found -> {
+                    val names = ServerModels.tidy(result.names)
+                    serverModels.value = names
+                    if (names.isEmpty()) {
+                        serverStatus.value = "Connected, but the server didn't list any models. Type the model's name below."
+                    } else {
+                        // Start on a model that can see photos, unless one's already chosen.
+                        val current = prefs.server.value
+                        if (current.model.isBlank()) prefs.setServer(current.copy(model = names.first()))
+                        serverStatus.value = "Connected. Pick a model that can read images."
+                    }
+                }
+                is ModelList.Failed -> serverStatus.value = when (result.problem) {
+                    ServerProblem.UNREACHABLE -> "Couldn't reach that address. Check that the server is running and set to accept other devices, and that this phone can get to it."
+                    ServerProblem.REFUSED -> "The server turned down that API key."
+                    ServerProblem.NO_USABLE_ANSWER -> "Something answered at that address, but it didn't list any models. Check the address and port, or type the model's name below."
+                }
+            }
         }
     }
 

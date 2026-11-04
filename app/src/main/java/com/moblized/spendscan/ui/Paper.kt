@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -268,6 +269,7 @@ fun PaperField(
     style: TextStyle = Type.body,
     placeholder: String? = null,
     singleLine: Boolean = true,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
     val c = LocalSlip.current
     Column(modifier) {
@@ -290,6 +292,7 @@ fun PaperField(
             textStyle = style.copy(color = textColor),
             cursorBrush = SolidColor(textColor),
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            visualTransformation = visualTransformation,
             modifier = Modifier.fillMaxWidth(),
             decorationBox = { inner ->
                 Box(

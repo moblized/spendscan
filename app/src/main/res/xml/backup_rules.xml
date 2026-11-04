@@ -2,4 +2,6 @@
 <!-- Android 11 and older. Photos would overrun Google's 25 MB backup limit and cancel the whole backup. -->
 <full-backup-content>
     <exclude domain="file" path="receipts/" />
+    <!-- Your server's address and key -->
+    <exclude domain="sharedpref" path="server.xml" />
 </full-backup-content>

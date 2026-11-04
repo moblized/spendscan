@@ -2,6 +2,7 @@ package com.moblized.spendscan.data
 
 import android.content.Context
 import androidx.core.content.edit
+import com.moblized.spendscan.server.ServerConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -18,6 +19,23 @@ class Prefs(context: Context) {
 
     private val _overallBudget = MutableStateFlow(p.getLong("overallBudget", -1).takeIf { it >= 0 })
     val overallBudget: StateFlow<Long?> = _overallBudget
+
+    // Kept in its own file so the key stays out of Google backups.
+    private val s = context.getSharedPreferences("server", Context.MODE_PRIVATE)
+
+    private val _server = MutableStateFlow(
+        ServerConfig(s.getString("url", "").orEmpty(), s.getString("key", "").orEmpty(), s.getString("model", "").orEmpty()),
+    )
+    val server: StateFlow<ServerConfig> = _server
+
+    fun setServer(config: ServerConfig) {
+        _server.value = config
+        s.edit {
+            putString("url", config.url)
+            putString("key", config.key)
+            putString("model", config.model)
+        }
+    }
 
     fun setTheme(choice: ThemeChoice) {
         _theme.value = choice

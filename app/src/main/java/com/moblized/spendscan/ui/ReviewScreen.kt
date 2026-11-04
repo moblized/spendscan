@@ -92,6 +92,10 @@ fun ReviewScreen(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 12.dp),
         ) {
             Slip {
+                draft.readNote?.let {
+                    Text(it, style = Type.small, color = c.inkFaded)
+                    Spacer(Modifier.height(10.dp))
+                }
                 if (draft.readFailed) {
                     Text(
                         "No text could be read from this photo. Fill in the store and total yourself, or go back and scan it again in better light.",

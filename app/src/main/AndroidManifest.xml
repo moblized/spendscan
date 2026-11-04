@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only used to check GitHub for app updates. The app itself never sends receipts anywhere. -->
+    <!-- Used to check GitHub for app updates and to reach your own language model server, if you add one. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- In-app updates: hands the downloaded release APK to Android's installer -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -11,6 +11,7 @@
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"

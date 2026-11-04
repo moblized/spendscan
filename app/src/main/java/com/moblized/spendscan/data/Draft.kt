@@ -27,6 +27,8 @@ data class Draft(
     val unsure: Set<ReceiptField> = emptySet(),
     /** Nothing could be read from the photo. */
     val readFailed: Boolean = false,
+    /** Who read it, when you have a server: your model, or this phone because the server couldn't. */
+    val readNote: String? = null,
     val createdAt: Long = 0,
 ) {
     val totalCents: Long? get() = Money.parse(totalText)
@@ -90,6 +92,7 @@ data class Draft(
             photos: List<String>,
             today: LocalDate,
             categoryId: Long?,
+            readNote: String? = null,
         ): Draft {
             if (parsed == null || (parsed.totalCents == null && parsed.store == null && parsed.items.isEmpty())) {
                 return Draft(
@@ -99,6 +102,7 @@ data class Draft(
                     rawText = parsed?.rawText?.ifBlank { null },
                     unsure = ReceiptField.entries.toSet(),
                     readFailed = true,
+                    readNote = readNote,
                 )
             }
             return Draft(
@@ -115,6 +119,7 @@ data class Draft(
                 photos = photos,
                 rawText = parsed.rawText,
                 unsure = parsed.unsure,
+                readNote = readNote,
             )
         }
 

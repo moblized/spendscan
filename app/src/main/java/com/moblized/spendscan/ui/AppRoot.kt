@@ -89,7 +89,7 @@ fun AppRoot(
                 ) { Text(data.visuals.message, style = Type.body, color = c.paper) }
             }
 
-            if (reading) ReadingOverlay()
+            if (reading != ReadingStage.NONE) ReadingOverlay(reading, model::usePhoneReading)
         }
 
         Dialogs(model, onPickPhoto)
@@ -174,6 +174,9 @@ private fun SettingsRoute(model: AppModel) {
     val theme by model.theme.collectAsStateWithLifecycle()
     val total by model.receiptCount.collectAsStateWithLifecycle()
     val status by model.updateStatus.collectAsStateWithLifecycle()
+    val server by model.server.collectAsStateWithLifecycle()
+    val serverModels by model.serverModels.collectAsStateWithLifecycle()
+    val serverStatus by model.serverStatus.collectAsStateWithLifecycle()
     SettingsScreen(
         theme = theme,
         onTheme = model::setTheme,
@@ -182,6 +185,11 @@ private fun SettingsRoute(model: AppModel) {
         version = model.updater.installedVersionName,
         updateStatus = status,
         onCheckUpdates = model::checkForUpdates,
+        server = server,
+        onServer = model::setServer,
+        serverModels = serverModels,
+        serverStatus = serverStatus,
+        onFindModels = model::findModels,
     )
 }
 
@@ -220,14 +228,22 @@ private fun ReviewRoute(model: AppModel) {
 }
 
 @Composable
-private fun ReadingOverlay() {
+private fun ReadingOverlay(stage: ReadingStage, onUsePhone: () -> Unit) {
     val c = LocalSlip.current
+    val asking = stage == ReadingStage.SERVER
     Box(Modifier.fillMaxSize().background(c.counter), contentAlignment = Alignment.Center) {
         Slip(Modifier.padding(horizontal = 40.dp)) {
-            Text("Reading your receipt", style = Type.lead, color = c.ink, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text(
+                if (asking) "Asking your server" else "Reading your receipt",
+                style = Type.lead,
+                color = c.ink,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(4.dp))
             Text(
-                "The first scan can take up to a minute while the phone gets its text reader.",
+                if (asking) "This can take a minute if the model has to load first."
+                else "The first scan can take up to a minute while the phone gets its text reader.",
                 style = Type.small,
                 color = c.inkFaded,
                 textAlign = TextAlign.Center,
@@ -235,6 +251,10 @@ private fun ReadingOverlay() {
             )
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(Modifier.fillMaxWidth(), color = c.ink, trackColor = c.paperShade)
+            if (asking) {
+                Spacer(Modifier.height(12.dp))
+                PaperButton("Use the phone's reading", onUsePhone, Modifier.fillMaxWidth())
+            }
         }
     }
 }

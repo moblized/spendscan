@@ -3,5 +3,7 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="receipts/" />
+        <!-- Your server's address and key -->
+        <exclude domain="sharedpref" path="server.xml" />
     </cloud-backup>
 </data-extraction-rules>

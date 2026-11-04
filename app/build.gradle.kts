@@ -98,6 +98,9 @@ dependencies {
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.2")
 
+    // Turns shared photos the right way up before they go to your language model server
+    implementation("androidx.exifinterface:exifinterface:1.4.1")
+
     // Receipt photos
     implementation("io.coil-kt:coil-compose:2.7.0")
 
