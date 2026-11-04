@@ -1,9 +1,14 @@
 package com.moblized.spendscan.ui
 
 import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.and
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -28,6 +33,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
+import java.time.LocalDate
 
 /** Runs the real app, database and all, the way a person would use it. Only the camera and text reader are left out. */
 @RunWith(RobolectricTestRunner::class)
@@ -136,8 +143,6 @@ class AppFlowTest {
         tapIcon("Delete receipt")
         tap("Delete")
         waitFor("Deleted Kroger, ${money(4520)}.")
-        waitFor("Nothing matches")
-        tap("Clear filters")
         waitFor("No receipts yet")
     }
 
@@ -222,6 +227,11 @@ class AppFlowTest {
         waitFor("Bought 1 time for ${money(349)}, about ${money(349)} each time")
         tapIcon("Clear search")
         waitGone("\"milk\" on your receipts")
+
+        field(0).performTextInput("zucchini")
+        waitFor("Nothing matches")
+        tap("Clear filters")
+        waitFor("Kroger")
     }
 
     @Test
@@ -240,14 +250,65 @@ class AppFlowTest {
     fun categoriesCanBeAddedAndDeleted() {
         tap("Budgets")
         tap("Add a category")
-        waitFor("New category")
+        waitFor("Category name")
         compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size.let { n -> field(n - 1).performTextInput("Coffee") }
         tap("Add")
         waitFor("Coffee")
+        waitGone("Category name")
+
         tap("Coffee")
-        waitFor("Edit Coffee")
+        waitFor("Category name")
+        val nameField = compose.onNode(hasSetTextAction() and hasText("Coffee"))
+        nameField.performTextClearance()
+        // Emptied, it no longer matches by name, so find it by its hint.
+        compose.onNode(hasSetTextAction() and hasText("Coffee, Kids, Vet")).performTextInput("Tea")
+        tap("Save")
+        waitFor("Tea")
+
+        tap("Tea")
+        waitFor("Category name")
         tap("Delete")
-        waitGone("Coffee")
+        waitGone("Tea")
+    }
+
+    @Test
+    fun theCatchAllCategoryCantBeDeleted() {
+        tap("Budgets")
+        tap("Other")
+        waitFor("Receipts from deleted categories land here, so this one stays.")
+        compose.onAllNodesWithText("Delete").assertCountEquals(0)
+        tap("Cancel")
+        waitGone("Category name")
+    }
+
+    @Test
+    fun theDateCanBePicked() {
+        tap("Add one by hand")
+        tap(LocalDate.now().full())
+        tap("Set date")
+        waitGone("Set date")
+        waitFor("Add a receipt")
+    }
+
+    @Test
+    fun aPhotoThatCantBeReadStillOpensForEditing() {
+        scenario.close()
+        val photo = File(app.cacheDir, "shared.jpg").apply { writeText("not really a picture") }
+        val share = Intent(app, MainActivity::class.java)
+            .setAction(Intent.ACTION_SEND)
+            .setType("image/jpeg")
+            .putExtra(Intent.EXTRA_STREAM, Uri.fromFile(photo))
+        scenario = ActivityScenario.launch(share)
+        compose.waitUntil(timeoutMillis = 90_000) {
+            compose.onAllNodesWithText("No text could be read", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        waitFor("Check this receipt")
+        waitFor("Add the store and total to save.")
+        // The photo was kept with the draft, and goes away if the draft does.
+        assertEquals(1, File(app.filesDir, "receipts").list()?.size)
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitFor("Scan a receipt")
+        compose.waitUntil(timeoutMillis = 5_000) { File(app.filesDir, "receipts").list().isNullOrEmpty() }
     }
 
     @Test

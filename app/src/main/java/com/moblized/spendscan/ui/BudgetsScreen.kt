@@ -1,20 +1,20 @@
 package com.moblized.spendscan.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,10 +44,10 @@ fun BudgetsScreen(
     modifier: Modifier = Modifier,
 ) {
     val c = LocalSlip.current
-    var editing by remember { mutableStateOf<Category?>(null) }
+    var editingId by remember { mutableStateOf<Long?>(null) }
     var adding by remember { mutableStateOf(false) }
 
-    Column(modifier.fillMaxSize().statusBarsPadding()) {
+    Column(modifier.fillMaxSize().statusBarsPadding().imePadding()) {
         Text("Budgets", style = Type.lead, color = c.onCounter, modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 12.dp))
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
@@ -70,57 +70,66 @@ fun BudgetsScreen(
                 SlipRule()
                 categories.forEachIndexed { i, cat ->
                     if (i > 0) Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).clickable { editing = cat }.padding(vertical = 4.dp)) {
-                            Text(cat.name, style = Type.strong, color = c.ink, maxLines = 1)
-                            Text(
-                                "${Money.format(spent[cat.id] ?: 0)} in ${month.name()}",
-                                style = Type.small,
-                                color = c.inkFaded,
-                                maxLines = 1,
-                            )
+                    if (editingId == cat.id) {
+                        NameEditor(
+                            initial = cat.name,
+                            confirm = "Save",
+                            onConfirm = {
+                                onRename(cat, it)
+                                editingId = null
+                            },
+                            onCancel = { editingId = null },
+                            onDelete = if (cat.fixed) null else ({
+                                onDelete(cat)
+                                editingId = null
+                            }),
+                            hint = if (cat.fixed) "Receipts from deleted categories land here, so this one stays." else "Deleting moves its receipts to Other.",
+                        )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        adding = false
+                                        editingId = cat.id
+                                    }
+                                    .padding(vertical = 4.dp),
+                            ) {
+                                Text(cat.name, style = Type.strong, color = c.ink, maxLines = 1)
+                                Text(
+                                    "${Money.format(spent[cat.id] ?: 0)} in ${month.name()}",
+                                    style = Type.small,
+                                    color = c.inkFaded,
+                                    maxLines = 1,
+                                )
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            BudgetField(cat.budgetCents, "No limit", { onBudget(cat, it) }, Modifier.width(112.dp), key = cat.id)
                         }
-                        Spacer(Modifier.width(10.dp))
-                        BudgetField(cat.budgetCents, "No limit", { onBudget(cat, it) }, Modifier.width(112.dp), key = cat.id)
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                PaperButton("Add a category", { adding = true }, Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-                Text("Tap a category's name to rename or delete it.", style = Type.small, color = c.inkFaded)
+                if (adding) {
+                    NameEditor(
+                        initial = "",
+                        confirm = "Add",
+                        onConfirm = {
+                            onAdd(it)
+                            adding = false
+                        },
+                        onCancel = { adding = false },
+                    )
+                } else {
+                    PaperButton("Add a category", {
+                        editingId = null
+                        adding = true
+                    }, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(6.dp))
+                    Text("Tap a category's name to rename or delete it.", style = Type.small, color = c.inkFaded)
+                }
             }
         }
-    }
-
-    editing?.let { cat ->
-        NameDialog(
-            title = "Edit ${cat.name}",
-            initial = cat.name,
-            confirm = "Save",
-            onConfirm = {
-                onRename(cat, it)
-                editing = null
-            },
-            onDismiss = { editing = null },
-            deleteLabel = if (cat.fixed) null else "Delete",
-            onDelete = {
-                onDelete(cat)
-                editing = null
-            },
-            hint = if (cat.fixed) "Receipts from deleted categories land here, so this one stays." else "Deleting moves its receipts to Other.",
-        )
-    }
-    if (adding) {
-        NameDialog(
-            title = "New category",
-            initial = "",
-            confirm = "Add",
-            onConfirm = {
-                onAdd(it)
-                adding = false
-            },
-            onDismiss = { adding = false },
-        )
     }
 }
 
@@ -150,39 +159,29 @@ private fun BudgetField(cents: Long?, placeholder: String, onCents: (Long?) -> U
     )
 }
 
+/** Names a category right there on the slip. */
 @Composable
-private fun NameDialog(
-    title: String,
+private fun NameEditor(
     initial: String,
     confirm: String,
     onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-    deleteLabel: String? = null,
-    onDelete: () -> Unit = {},
+    onCancel: () -> Unit,
+    onDelete: (() -> Unit)? = null,
     hint: String? = null,
 ) {
     val c = LocalSlip.current
     var name by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                PaperField("Name", name, { name = it })
-                if (hint != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(hint, style = Type.small, color = c.inkFaded)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(name.trim()) }, enabled = name.isNotBlank()) { Text(confirm, color = c.ink) }
-        },
-        dismissButton = {
-            Row {
-                if (deleteLabel != null) TextButton(onClick = onDelete) { Text(deleteLabel, color = c.stamp) }
-                TextButton(onClick = onDismiss) { Text("Cancel", color = c.ink) }
-            }
-        },
-    )
+    Column(Modifier.fillMaxWidth()) {
+        PaperField("Category name", name, { name = it }, placeholder = "Coffee, Kids, Vet")
+        if (hint != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(hint, style = Type.small, color = c.inkFaded)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PaperButton(confirm, { onConfirm(name.trim()) }, Modifier.weight(1f), enabled = name.isNotBlank())
+            PaperButton("Cancel", onCancel, Modifier.weight(1f))
+            if (onDelete != null) PaperButton("Delete", onDelete, Modifier.weight(1f), color = c.stamp)
+        }
+    }
 }
