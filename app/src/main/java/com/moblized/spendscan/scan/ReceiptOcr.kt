@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.hypot
 
 /**
  * Reads the text on scanned receipt pages, on the phone, keeping where each line sits. The reader comes from
@@ -31,7 +32,16 @@ object ReceiptOcr {
                 for (block in text.textBlocks) {
                     for (line in block.lines) {
                         val box = line.boundingBox ?: continue
-                        out += OcrLine(line.text, box.left, box.top + offset, box.right, box.bottom + offset)
+                        // Corners run clockwise from the top left, and follow the text even when it's tilted.
+                        val corners = line.cornerPoints
+                        var slope = 0.0
+                        var textHeight = 0
+                        if (corners != null && corners.size == 4) {
+                            val across = (corners[1].x - corners[0].x).toDouble()
+                            if (across > 0) slope = (corners[1].y - corners[0].y) / across
+                            textHeight = hypot((corners[3].x - corners[0].x).toDouble(), (corners[3].y - corners[0].y).toDouble()).toInt()
+                        }
+                        out += OcrLine(line.text, box.left, box.top + offset, box.right, box.bottom + offset, slope, textHeight)
                     }
                 }
                 // Stack the pages of a long receipt one under the other.

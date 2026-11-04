@@ -358,6 +358,21 @@ class ReceiptParserTest {
     }
 
     @Test
+    fun rowsAreRebuiltOnASlantedPhoto() {
+        // About 5 degrees: the price sits a whole row lower than its name.
+        val slope = 0.09
+        fun at(text: String, x: Int, row: Int, width: Int): OcrLine {
+            val top = 100 + row * 44 + (x * slope).toInt()
+            return OcrLine(text, x, top, x + width, top + 30 + (width * slope).toInt(), slope, 30)
+        }
+        val lines = listOf(
+            at("Milk", 40, 0, 120), at("Bread", 40, 1, 150), at("TOTAL", 40, 2, 140),
+            at("3.49", 520, 0, 90), at("2.99", 520, 1, 90), at("6.48", 520, 2, 90),
+        )
+        assertEquals(listOf("Milk 3.49", "Bread 2.99", "TOTAL 6.48"), ReceiptParser.rows(lines))
+    }
+
+    @Test
     fun storeNamesAreTidied() {
         assertEquals("Blue Heron Books", parse("BLUE HERON BOOKS #204\nTotal 9.00").store)
         assertEquals("Trader Joe's", parse("TRADER JOE’S\nTotal 9.00").store)

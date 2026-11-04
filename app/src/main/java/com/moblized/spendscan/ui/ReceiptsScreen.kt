@@ -3,6 +3,7 @@ package com.moblized.spendscan.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -162,9 +163,17 @@ private fun SearchField(value: String, onChange: (String) -> Unit, modifier: Mod
             ) {
                 Icon(painterResource(R.drawable.ic_search), null, tint = c.inkFaded, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
-                Column(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f)) {
                     if (value.isEmpty()) Text("Search stores and items", style = Type.body, color = c.inkFaded, maxLines = 1)
                     inner()
+                }
+                if (value.isNotEmpty()) {
+                    Icon(
+                        painterResource(R.drawable.ic_close),
+                        "Clear search",
+                        tint = c.inkFaded,
+                        modifier = Modifier.size(20.dp).clickable { onChange("") },
+                    )
                 }
             }
         },

@@ -179,6 +179,11 @@ class ScreenshotTest {
         ReceiptsScreen(emptyList(), null, ReceiptFilter(), cats, false, {}, {}, {}, {})
     }
 
+    @Test
+    fun receiptsSearching() = shoot("17_receipts_typing") {
+        ReceiptsScreen(emptyList(), null, ReceiptFilter(query = "zucchini"), cats, true, {}, {}, {}, {})
+    }
+
     private val detailReceipt = Receipt(
         id = 1, store = "Olive Garden", dateEpochDay = nov.atDay(9).toEpochDay(), totalCents = 6810, subtotalCents = 5400,
         taxCents = 410, tipCents = 1000, categoryId = 2, payment = "Mastercard 5454",
@@ -203,7 +208,7 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w412dp-h1300dp-xxhdpi")
     fun review() = shoot("11_review") {
-        ReviewScreen(parsedDraft, cats, { File(it) }, {}, {}, {})
+        ReviewScreen(parsedDraft.copy(photos = listOf("page1.jpg", "page2.jpg")), cats, { File(it) }, {}, {}, {})
     }
 
     @Test

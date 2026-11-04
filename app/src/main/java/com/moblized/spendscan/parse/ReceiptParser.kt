@@ -8,9 +8,20 @@ import kotlin.math.min
 import kotlin.math.roundToLong
 
 /** A line of text the phone read from a receipt photo, and where it sits (pixels; pages stacked top to bottom). */
-data class OcrLine(val text: String, val left: Int, val top: Int, val right: Int, val bottom: Int) {
+data class OcrLine(
+    val text: String,
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    /** How much the text climbs or falls per pixel across, from its corners; zero when level. */
+    val slope: Double = 0.0,
+    /** The height of the letters, when known. A tilted line's box is taller than its letters. */
+    val textHeight: Int = 0,
+) {
+    val centerX: Double get() = (left + right) / 2.0
     val centerY: Double get() = (top + bottom) / 2.0
-    val height: Int get() = max(1, bottom - top)
+    val height: Int get() = if (textHeight > 0) textHeight else max(1, bottom - top)
     val width: Int get() = max(1, right - left)
 }
 
@@ -51,15 +62,18 @@ object ReceiptParser {
         val ls = lines.filter { it.text.isNotBlank() }
         if (ls.isEmpty()) return emptyList()
         val typicalHeight = ls.map { it.height }.sorted()[ls.size / 2].toDouble()
+        // On a slanted photo a price sits higher or lower than its name, so level everything first.
+        val skew = ls.map { it.slope }.sorted()[ls.size / 2]
+        val y = { l: OcrLine -> l.centerY - l.centerX * skew }
         val rows = ArrayList<MutableList<OcrLine>>()
-        for (l in ls.sortedBy { it.centerY }) {
+        for (l in ls.sortedBy(y)) {
             val row = rows.filter { r ->
-                abs(r.map { it.centerY }.average() - l.centerY) <= 0.6 * typicalHeight &&
+                abs(r.map(y).average() - y(l)) <= 0.6 * typicalHeight &&
                     r.none { o -> overlapX(o, l) > 0.3 * min(o.width, l.width) }
-            }.minByOrNull { r -> abs(r.map { it.centerY }.average() - l.centerY) }
+            }.minByOrNull { r -> abs(r.map(y).average() - y(l)) }
             if (row != null) row += l else rows += mutableListOf(l)
         }
-        return rows.sortedBy { r -> r.map { it.centerY }.average() }
+        return rows.sortedBy { r -> r.map(y).average() }
             .map { r -> r.sortedBy { it.left }.joinToString(" ") { it.text.trim() } }
     }
 

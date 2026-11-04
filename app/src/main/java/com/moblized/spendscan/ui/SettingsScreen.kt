@@ -45,15 +45,21 @@ fun SettingsScreen(
                     Chip("Dark", theme == ThemeChoice.DARK, { onTheme(ThemeChoice.DARK) }, onPaper = true, modifier = Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("The app icon changes to match.", style = Type.small, color = c.inkFaded)
+                Text("Phone follows your phone's dark mode setting. The app icon changes to match.", style = Type.small, color = c.inkFaded)
 
                 SlipRule()
 
                 Text("Your receipts", style = Type.strong, color = c.ink)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Receipts and photos stay on this phone. The app only goes online to check for updates.",
+                    "Receipts and photos are kept on this phone. The app only goes online to check for updates.",
                     style = Type.body,
+                    color = c.inkFaded,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "If your phone backs up to Google, your receipt list goes with it. Photos don't.",
+                    style = Type.small,
                     color = c.inkFaded,
                 )
                 Spacer(Modifier.height(10.dp))

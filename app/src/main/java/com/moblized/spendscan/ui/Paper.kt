@@ -195,18 +195,17 @@ fun YellowButton(
     Row(
         modifier
             .defaultMinSize(minHeight = 50.dp)
-            .alpha(if (enabled) 1f else 0.45f)
-            .background(c.highlighter, RoundedCornerShape(5.dp))
+            .background(if (enabled) c.highlighter else c.paperShade, RoundedCornerShape(5.dp))
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(painterResource(icon), null, tint = c.onHighlighter, modifier = Modifier.size(20.dp))
+            Icon(painterResource(icon), null, tint = if (enabled) c.onHighlighter else c.inkFaded, modifier = Modifier.size(20.dp))
             Spacer(Modifier.size(8.dp))
         }
-        Text(text, style = Type.strong, color = c.onHighlighter, textAlign = TextAlign.Center)
+        Text(text, style = Type.strong, color = if (enabled) c.onHighlighter else c.inkFaded, textAlign = TextAlign.Center)
     }
 }
 
