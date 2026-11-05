@@ -1,5 +1,6 @@
 package com.moblized.spendscan.server
 
+import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.parse.Chains
 import com.moblized.spendscan.parse.ParsedFuel
@@ -9,6 +10,7 @@ import com.moblized.spendscan.parse.ReceiptField
 import com.moblized.spendscan.parse.ReceiptParser
 import java.time.LocalDate
 import kotlin.math.abs
+import kotlin.math.max
 
 /** Where your language model runs. Works with anything that speaks the OpenAI API: Ollama, LM Studio, llama.cpp, vLLM. */
 data class ServerConfig(val url: String = "", val key: String = "", val model: String = "") {
@@ -107,7 +109,6 @@ object ServerMerge {
         val withExtras = base?.plus(tax ?: 0)?.plus(tip ?: 0)
         val addsUp = close(total, withExtras) || close(total, withExtras?.minus(discount ?: 0))
         val onPaper = total != null && rawText.replace(",", "").contains(Money.plain(total))
-        val backedUp = addsUp || onPaper || close(total, phone?.totalCents)
 
         val gallons = server.gallonsMilli?.takeIf { g ->
             g in 500..400_000 && (total == null || (total * 10_000 / g) in 1_500..12_000)
@@ -117,6 +118,12 @@ object ServerMerge {
         } else {
             phone?.fuel
         }
+
+        // On fuel, gallons times price is its own check on the total.
+        val fuelPrice = fuel?.priceMilli
+        val fuelAddsUp = total != null && fuel != null && fuelPrice != null &&
+            abs(FuelUnits.cost(fuel.gallonsMilli, fuelPrice) - total) <= max(5L, total / 250)
+        val backedUp = addsUp || fuelAddsUp || onPaper || close(total, phone?.totalCents)
 
         return ParsedReceipt(
             store = store,
@@ -141,7 +148,26 @@ object ServerMerge {
 }
 
 object ServerPrompt {
-    const val SYSTEM = "You read store receipts and report exactly what they say as JSON."
+    const val SYSTEM = "You read store receipts and gas pump displays, and report exactly what they say as JSON."
+
+    /** For a photo of a gas pump's display, when the station gave no receipt. */
+    fun pump(phoneText: String?, categories: List<String>, today: LocalDate): String = buildString {
+        appendLine("This is a photo of a gas pump's display after filling up. Read it and fill in the JSON.")
+        appendLine()
+        appendLine("""- total: the dollar amount of this sale, usually the largest number, to two decimals.""")
+        appendLine("""- gallons: the amount pumped, usually to three decimals, like 12.345.""")
+        appendLine("""- price_per_gallon: the price of the grade that was pumped, like 3.459. Pumps can show several grades. Pick the one where gallons times price equals the total.""")
+        appendLine("""- store: the fuel brand, only if it's on the pump. Otherwise null.""")
+        appendLine("""- category: the best fit from this list: ${categories.joinToString(", ")}.""")
+        appendLine("""- date: only if shown, as YYYY-MM-DD. Today is $today.""")
+        appendLine("""- subtotal, tax, tip, discount, payment: null. items: an empty list.""")
+        appendLine("""- The digits may be on a segmented display. Read them carefully. Use null for anything you can't read. Don't guess.""")
+        if (phoneText != null) {
+            appendLine()
+            appendLine("The phone also read this text from the photo. It often misreads these displays, so trust the photo:")
+            append(phoneText.take(2000))
+        }
+    }
 
     fun user(hasPhoto: Boolean, phoneText: String?, categories: List<String>, today: LocalDate): String = buildString {
         appendLine("Read this receipt and fill in the JSON.")

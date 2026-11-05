@@ -1,25 +1,34 @@
 package com.moblized.spendscan.ui
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -46,7 +55,7 @@ fun FuelScreen(
     onMonth: (YearMonth) -> Unit,
     onOpen: (Long) -> Unit,
     onAdd: () -> Unit,
-    onScan: () -> Unit,
+    onPumpPhoto: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = LocalSlip.current
@@ -55,7 +64,10 @@ fun FuelScreen(
             CounterIcon(R.drawable.ic_back, "Previous month", { onMonth(s.month.minusMonths(1)) })
             Text(s.month.withYear(), style = Type.lead, color = c.onCounter, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
             CounterIcon(R.drawable.ic_forward, "Next month", { onMonth(s.month.plusMonths(1)) }, enabled = !s.isCurrent)
-            CounterIcon(R.drawable.ic_add, "Add a fill-up", onAdd)
+        }
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            CounterAction("Photo of the pump", onPumpPhoto, Modifier.weight(1.35f), icon = R.drawable.ic_camera)
+            CounterAction("Add by hand", onAdd, Modifier.weight(1f), icon = R.drawable.ic_add)
         }
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
@@ -68,14 +80,16 @@ fun FuelScreen(
                         Text("No fill-ups yet", style = Type.lead, color = c.ink)
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Scan a gas receipt or add a fill-up by hand. Include your odometer to see your miles per gallon.",
+                            "Scan a gas receipt with the Scan button. If the station doesn't print one, take a photo of the pump instead.",
                             style = Type.body,
                             color = c.inkFaded,
                         )
-                        Spacer(Modifier.height(16.dp))
-                        YellowButton("Scan a gas receipt", onScan, Modifier.fillMaxWidth(), icon = R.drawable.ic_scan)
-                        Spacer(Modifier.height(8.dp))
-                        PaperButton("Add a fill-up", onAdd, Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Include your odometer to see your miles per gallon.",
+                            style = Type.small,
+                            color = c.inkFaded,
+                        )
                     }
                 }
             } else {
@@ -93,6 +107,25 @@ fun FuelScreen(
             }
             item { SlipEdge(top = false) }
         }
+    }
+}
+
+/** An action on the counter, above the slip. */
+@Composable
+private fun CounterAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, @DrawableRes icon: Int) {
+    val c = LocalSlip.current
+    Row(
+        modifier
+            .defaultMinSize(minHeight = 46.dp)
+            .border(1.dp, c.onCounter.copy(alpha = 0.6f), RoundedCornerShape(5.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(icon), null, tint = c.onCounter, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(text, style = Type.body, color = c.onCounter, maxLines = 1)
     }
 }
 

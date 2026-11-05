@@ -37,6 +37,7 @@ import com.moblized.spendscan.data.ReceiptFilter
 import com.moblized.spendscan.data.ReceiptItem
 import com.moblized.spendscan.data.ReceiptRow
 import com.moblized.spendscan.data.ThemeChoice
+import com.moblized.spendscan.parse.PumpReader
 import com.moblized.spendscan.parse.ReceiptField
 import com.moblized.spendscan.parse.ReceiptParser
 import com.moblized.spendscan.server.ServerConfig
@@ -329,6 +330,16 @@ class ScreenshotTest {
                 store = "Shell", isFillUp = true, gallonsText = "22.400", priceText = "3.759", totalText = "84.20",
                 categoryId = 3, items = emptyList(), lastOdometer = 52_010,
             ),
+            cats, { File(it) }, {}, {}, {},
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h1000dp-xxhdpi")
+    fun reviewPumpPhoto() = shoot("27_review_pump") {
+        ReviewScreen(
+            Draft.fromParsed(PumpReader.parse(listOf("42.70", "12.345", "3.459")), emptyList(), today, 3, "Read from the pump photo. Check the numbers against it.", 52_010)
+                .copy(isFillUp = true, photos = listOf("pump.jpg")),
             cats, { File(it) }, {}, {}, {},
         )
     }

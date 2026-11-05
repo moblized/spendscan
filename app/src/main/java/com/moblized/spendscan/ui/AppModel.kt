@@ -28,6 +28,7 @@ import com.moblized.spendscan.data.ThemeChoice
 import com.moblized.spendscan.data.budgetNote
 import com.moblized.spendscan.export.Csv
 import com.moblized.spendscan.parse.Chains
+import com.moblized.spendscan.parse.PumpReader
 import com.moblized.spendscan.parse.ReceiptField
 import com.moblized.spendscan.parse.ReceiptParser
 import com.moblized.spendscan.scan.ReceiptOcr
@@ -187,7 +188,12 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     private var skipServer: CompletableDeferred<Unit>? = null
 
     /** Pages came back from the scanner, or a photo was picked or shared. */
-    fun onPages(pages: List<Uri>) {
+    fun onPages(pages: List<Uri>) = read(pages, pump = false)
+
+    /** A photo of the pump's display, for when the station gave no receipt. */
+    fun onPumpPhoto(photo: Uri) = read(listOf(photo), pump = true)
+
+    private fun read(pages: List<Uri>, pump: Boolean) {
         if (pages.isEmpty()) return
         reading.value = ReadingStage.PHONE
         viewModelScope.launch {
@@ -196,18 +202,21 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             val files = photos.map(app.photos::file)
             val phone = runCatching {
                 val lines = ReceiptOcr.read(app, files)
-                withContext(Dispatchers.Default) { ReceiptParser.parse(ReceiptParser.rows(lines), today) }
+                withContext(Dispatchers.Default) {
+                    val rows = ReceiptParser.rows(lines)
+                    if (pump) PumpReader.parse(rows) else ReceiptParser.parse(rows, today)
+                }
             }.getOrNull()
 
             var reading = phone
-            var note: String? = null
+            var note: String? = if (pump) "Read from the pump photo. Check the numbers against it." else null
             val config = prefs.server.value
             if (config.isSet && photos.isNotEmpty()) {
                 this@AppModel.reading.value = ReadingStage.SERVER
                 val categories = dao.categoriesNow().map { it.name }
                 val skip = CompletableDeferred<Unit>().also { skipServer = it }
                 val call = async(Dispatchers.IO) {
-                    runCatching { app.server.read(config, files, phone?.rawText, categories, today) }
+                    runCatching { app.server.read(config, files, phone?.rawText, categories, today, pump) }
                         .getOrDefault(ServerOutcome.Failed(ServerProblem.NO_USABLE_ANSWER))
                 }
                 val outcome = select<ServerOutcome?> {
@@ -230,9 +239,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val suggested = if (reading?.fuel != null) Chains.AUTO else reading?.suggestedCategory
+            val suggested = if (pump || reading?.fuel != null) Chains.AUTO else reading?.suggestedCategory
             val categoryId = pickCategory(reading?.store, suggested)
-            startDraft(Draft.fromParsed(reading, photos, today, categoryId, note, dao.lastOdometer()))
+            val draft = Draft.fromParsed(reading, photos, today, categoryId, note, dao.lastOdometer())
+            // A pump photo is always a fill-up, and it was taken just now, so today's date is right.
+            startDraft(if (pump) draft.copy(isFillUp = true, unsure = draft.unsure - ReceiptField.DATE) else draft)
             this@AppModel.reading.value = ReadingStage.NONE
         }
     }

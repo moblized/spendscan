@@ -72,7 +72,14 @@ class ServerApi {
      * Asks the model to read a receipt. Servers and models differ in what they accept, so this starts with the best
      * request and falls back: first without the strict answer format, then without the photo if the model can't see.
      */
-    fun read(config: ServerConfig, pages: List<File>, phoneText: String?, categories: List<String>, today: LocalDate): ServerOutcome {
+    fun read(
+        config: ServerConfig,
+        pages: List<File>,
+        phoneText: String?,
+        categories: List<String>,
+        today: LocalDate,
+        pump: Boolean = false,
+    ): ServerOutcome {
         val images = pages.take(MAX_PAGES).mapNotNull(::encode)
         val text = phoneText?.takeIf { it.isNotBlank() }
         val attempts = buildList {
@@ -87,7 +94,7 @@ class ServerApi {
         }
         for ((usePhoto, useSchema) in attempts) {
             try {
-                val body = ServerJson.request(config.model, if (usePhoto) images else emptyList(), text, categories, today, useSchema)
+                val body = ServerJson.request(config.model, if (usePhoto) images else emptyList(), text, categories, today, useSchema, pump)
                 val receipt = ServerJson.parseResponse(post(config, body), today)
                 if (receipt != null) return ServerOutcome.Read(receipt, usePhoto)
             } catch (e: HttpFailure) {

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.provider.MediaStore
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
@@ -20,6 +21,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToString
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.moblized.spendscan.App
@@ -38,6 +40,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -478,8 +481,8 @@ class AppFlowTest {
     fun aFillUpIsTrackedUnderFuel() {
         tap("Fuel")
         waitFor("No fill-ups yet")
-        tap("Add a fill-up")
-        waitFor("Fill-up")
+        tap("Add by hand")
+        waitFor("Add a fill-up")
         field(0).performTextInput("Shell")
         // Gallons and price work out the total when it's left empty.
         field(2).performTextInput("10")
@@ -498,8 +501,8 @@ class AppFlowTest {
         assertEquals(3500L, saved.totalCents)
 
         // The second full tank makes mileage possible: 300 miles on 10 gallons.
-        tapIcon("Add a fill-up")
-        waitFor("Fill-up")
+        tap("Add by hand")
+        waitFor("Add a fill-up")
         waitFor("Last time 50,000")
         field(0).performTextInput("Exxon")
         field(1).performTextInput("30")
@@ -519,6 +522,77 @@ class AppFlowTest {
         waitFor("Deleted Exxon, ${money(3000)}.")
         waitGone("Exxon")
         assertEquals(1, runBlocking { app.dao.fillUpsNow() }.size)
+    }
+
+    /** The real flow past the camera app: a pump photo arriving back in the app. */
+    private fun pumpPhotoTaken() {
+        val photo = File(app.cacheDir, "pump.jpg")
+        photo.outputStream().use { Bitmap.createBitmap(120, 240, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.JPEG, 80, it) }
+        scenario.onActivity { ViewModelProvider(it)[AppModel::class.java].onPumpPhoto(Uri.fromFile(photo)) }
+    }
+
+    @Test
+    fun thePumpButtonOpensTheCameraApp() {
+        tap("Fuel")
+        tap("Photo of the pump")
+        compose.waitForIdle()
+        scenario.onActivity { activity ->
+            val started = Shadows.shadowOf(activity).nextStartedActivityForResult
+            assertEquals(MediaStore.ACTION_IMAGE_CAPTURE, started.intent.action)
+            val output = started.intent.getParcelableExtra(MediaStore.EXTRA_OUTPUT, Uri::class.java)
+            assertEquals("${app.packageName}.files", output?.authority)
+        }
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun aPumpPhotoIsReadByYourServerIntoAFillUp() {
+        val http = fakeServer(
+            """{"store":null,"date":null,"total":42.70,"subtotal":null,"tax":null,"tip":null,"discount":null,"payment":null,
+               "category":"Gas & auto","gallons":12.345,"price_per_gallon":3.459,"items":[]}""",
+        )
+        try {
+            app.prefs.setServer(ServerConfig(http.address, model = "qwen3-vl:8b"))
+            pumpPhotoTaken()
+            waitLong("Read by your server.")
+            waitFor("Check this fill-up")
+            compose.onNode(hasSetTextAction() and hasText("42.70")).assertExists()
+            compose.onNode(hasSetTextAction() and hasText("12.345")).assertExists()
+            compose.onNode(hasSetTextAction() and hasText("3.459")).assertExists()
+            // Pumps don't name the station, so it asks.
+            waitFor("Which station?")
+            waitFor("check this")
+            tap("Save receipt")
+            waitFor("Add the store to save.")
+            field(0).performTextInput("Shell")
+            tap("Save receipt")
+            waitFor("Saved Shell, ${money(4270)}.")
+            // Lands on Fuel, dated today, under Gas & auto, with the photo kept.
+            waitFor("Fuel so far")
+            val saved = runBlocking { app.dao.fillUpsNow() }.single()
+            assertEquals(12_345L, saved.fill.gallonsMilli)
+            assertEquals(LocalDate.now(), saved.date)
+            val receipt = runBlocking { app.dao.receiptsNow() }.single()
+            assertEquals(1, receipt.photoList.size)
+            assertEquals(runBlocking { app.dao.categoriesNow() }.first { it.name == "Gas & auto" }.id, receipt.categoryId)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun aPumpPhotoNothingCanReadStillBecomesAFillUp() {
+        // No server, and no text reader in this test: the numbers are typed in from the photo.
+        pumpPhotoTaken()
+        waitLong("Check this fill-up")
+        waitFor("No numbers could be read from this photo", substring = true)
+        waitFor("Fill-up")
+        field(0).performTextInput("Shell")
+        field(2).performTextInput("10")
+        field(3).performTextInput("4")
+        tap("Save receipt")
+        waitFor("Saved Shell, ${money(4000)}.")
     }
 
     @Test
@@ -550,7 +624,11 @@ class AppFlowTest {
         tap("Not a fill-up")
         tap("Save receipt")
         waitFor("Saved Shell, ${money(4000)}.")
-        compose.waitUntil(timeoutMillis = 5_000) { runBlocking { app.dao.fillUpsNow() }.isEmpty() }
+        compose.waitUntil(timeoutMillis = 5_000) {
+            // Lets the save finish: tests only run the app's queued work when asked to.
+            compose.waitForIdle()
+            runBlocking { app.dao.fillUpsNow() }.isEmpty()
+        }
         assertEquals(1, runBlocking { app.dao.receiptsNow() }.size)
     }
 

@@ -81,7 +81,9 @@ fun ReviewScreen(
 
     val title = when {
         draft.receiptId != null -> "Edit receipt"
+        draft.photos.isNotEmpty() && draft.isFillUp -> "Check this fill-up"
         draft.photos.isNotEmpty() -> "Check this receipt"
+        draft.isFillUp -> "Add a fill-up"
         else -> "Add a receipt"
     }
 
@@ -100,7 +102,8 @@ fun ReviewScreen(
                 }
                 if (draft.readFailed) {
                     Text(
-                        "No text could be read from this photo. Fill in the store and total yourself, or go back and scan it again in better light.",
+                        if (draft.isFillUp) "No numbers could be read from this photo. Fill them in from the photo, or go back and take it again closer up, without glare."
+                        else "No text could be read from this photo. Fill in the store and total yourself, or go back and scan it again in better light.",
                         style = Type.body,
                         color = c.onHighlighter,
                         modifier = Modifier.background(c.highlighter, RoundedCornerShape(3.dp)).padding(10.dp),
@@ -117,7 +120,7 @@ fun ReviewScreen(
                     draft.store,
                     { onChange(draft.copy(store = it, unsure = draft.unsure - ReceiptField.STORE)) },
                     flagged = ReceiptField.STORE in draft.unsure,
-                    placeholder = "Where was this?",
+                    placeholder = if (draft.isFillUp) "Which station?" else "Where was this?",
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

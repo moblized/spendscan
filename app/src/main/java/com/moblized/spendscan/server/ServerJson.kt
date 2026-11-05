@@ -45,8 +45,10 @@ object ServerJson {
         categories: List<String>,
         today: LocalDate,
         useSchema: Boolean,
+        pump: Boolean = false,
     ): String {
-        val text = ServerPrompt.user(pagesBase64.isNotEmpty(), phoneText, categories, today)
+        val text = if (pump) ServerPrompt.pump(phoneText, categories, today)
+        else ServerPrompt.user(pagesBase64.isNotEmpty(), phoneText, categories, today)
         val content = JSONArray().put(JSONObject().put("type", "text").put("text", text))
         pagesBase64.forEach { page ->
             content.put(

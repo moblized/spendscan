@@ -43,6 +43,7 @@ fun AppRoot(
     model: AppModel,
     onScan: () -> Unit,
     onPickPhoto: () -> Unit,
+    onPumpPhoto: () -> Unit,
     onDarkChange: (Boolean) -> Unit,
     onExit: () -> Unit,
 ) {
@@ -73,7 +74,7 @@ fun AppRoot(
 
         Box(Modifier.fillMaxSize().background(c.counter)) {
             when (val route = stack.last()) {
-                Route.Tabs -> Tabs(model, tab, onScan)
+                Route.Tabs -> Tabs(model, tab, onScan, onPumpPhoto)
                 Route.Review -> ReviewRoute(model)
                 is Route.Detail -> DetailRoute(model, route.id)
                 Route.Settings -> SettingsRoute(model)
@@ -99,13 +100,13 @@ fun AppRoot(
 }
 
 @Composable
-private fun Tabs(model: AppModel, tab: Tab, onScan: () -> Unit) {
+private fun Tabs(model: AppModel, tab: Tab, onScan: () -> Unit, onPumpPhoto: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 Tab.MONTH -> MonthRoute(model, onScan)
                 Tab.RECEIPTS -> ReceiptsRoute(model, onScan)
-                Tab.FUEL -> FuelRoute(model, onScan)
+                Tab.FUEL -> FuelRoute(model, onPumpPhoto)
                 Tab.BUDGETS -> BudgetsRoute(model)
             }
         }
@@ -136,7 +137,7 @@ private fun MonthRoute(model: AppModel, onScan: () -> Unit) {
 }
 
 @Composable
-private fun FuelRoute(model: AppModel, onScan: () -> Unit) {
+private fun FuelRoute(model: AppModel, onPumpPhoto: () -> Unit) {
     val summary by model.fuelSummary.collectAsStateWithLifecycle()
     val s = summary ?: return
     FuelScreen(
@@ -144,7 +145,7 @@ private fun FuelRoute(model: AppModel, onScan: () -> Unit) {
         onMonth = model::showFuelMonth,
         onOpen = { model.open(Route.Detail(it)) },
         onAdd = model::addFillUp,
-        onScan = onScan,
+        onPumpPhoto = onPumpPhoto,
     )
 }
 

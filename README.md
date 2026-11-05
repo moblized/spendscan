@@ -9,7 +9,7 @@ Scan your receipts and see where your money goes. An Android app built with Kotl
 - **See your month.** Your spending by category and by store, compared with the same point last month, with a bar for each day. Tap a day, store or category to see those receipts.
 - **Set budgets.** One for the whole month, one per category, or both. You get a note when a save takes a category past 80% or over budget.
 - **Search your receipts.** Finds stores and the items on them, so "milk" shows how often you bought it and what you paid each time.
-- **Track your fuel.** Scan a gas receipt or add a fill-up by hand. See what you spend each month, gallons, price per gallon, miles per gallon and cost per mile, with a bar for each of the last 12 months. Fill-ups are receipts underneath, so they count toward your month and budgets once.
+- **Track your fuel.** Scan a gas receipt, take a photo of the pump when the station doesn't print one, or add a fill-up by hand. See what you spend each month, gallons, price per gallon, miles per gallon and cost per mile, with a bar for each of the last 12 months. Fill-ups are receipts underneath, so they count toward your month and budgets once.
 - **Calculator.** An adding machine that keeps a tape of your sums. Open it from the top of the Month page, or from a receipt's Total to drop the answer in.
 - **Use your own language model (optional).** Point the app at your own server in Settings and scans are read by your model, with the phone's reading as a fallback.
 - **Everything else.** Add a receipt by hand, share a screenshot of a receipt to the app, catch duplicates, export to CSV, and long-press the icon for a scan shortcut.

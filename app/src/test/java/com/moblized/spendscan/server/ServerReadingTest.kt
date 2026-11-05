@@ -164,6 +164,23 @@ class ServerReadingTest {
     }
 
     @Test
+    fun aPumpPromptAsksForTheDisplay() {
+        val prompt = ServerPrompt.pump("42.70", listOf("Gas & auto"), today)
+        assertTrue(prompt.contains("gas pump"))
+        assertTrue(prompt.contains("gallons times price"))
+        assertTrue(prompt.contains("Gas & auto"))
+        assertTrue(prompt.contains("42.70"))
+    }
+
+    @Test
+    fun gallonsTimesPriceBacksUpAFuelTotal() {
+        val pump = ServerReceipt(null, null, 4270, null, null, null, null, null, null, emptyList(), gallonsMilli = 12_345, priceMilli = 3_459)
+        assertFalse(ReceiptField.TOTAL in ServerMerge.merge(pump, null, today).unsure)
+        assertTrue(ReceiptField.TOTAL in ServerMerge.merge(pump.copy(totalCents = 5000), null, today).unsure)
+        assertTrue(ReceiptField.STORE in ServerMerge.merge(pump, null, today).unsure)
+    }
+
+    @Test
     fun anEmptyReadingCountsAsNothing() {
         assertFalse(ServerReceipt(null, null, null, null, null, null, null, null, null, emptyList()).hasAnything)
         assertNull(ServerConfig("x").model.takeIf { it.isNotBlank() })
