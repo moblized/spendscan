@@ -46,6 +46,7 @@ import com.moblized.spendscan.R
 import com.moblized.spendscan.data.Category
 import com.moblized.spendscan.data.Draft
 import com.moblized.spendscan.data.DraftItem
+import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.parse.ReceiptField
 import com.moblized.spendscan.ui.theme.LocalSlip
@@ -66,6 +67,7 @@ fun ReviewScreen(
     onSave: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onCalculator: () -> Unit = {},
 ) {
     val c = LocalSlip.current
     var pickingDate by remember { mutableStateOf(false) }
@@ -127,7 +129,15 @@ fun ReviewScreen(
                         flagged = ReceiptField.TOTAL in draft.unsure,
                         keyboardType = KeyboardType.Decimal,
                         style = Type.lead,
-                        placeholder = "0.00",
+                        placeholder = draft.fuelCostCents?.let(Money::plain) ?: "0.00",
+                        trailing = {
+                            Icon(
+                                painterResource(R.drawable.ic_calculator),
+                                "Work out the total",
+                                tint = if (ReceiptField.TOTAL in draft.unsure) c.onHighlighter else c.inkFaded,
+                                modifier = Modifier.padding(start = 4.dp).size(24.dp).clickable(role = Role.Button, onClick = onCalculator),
+                            )
+                        },
                     )
                     DateButton(draft.date, ReceiptField.DATE in draft.unsure, { pickingDate = true }, Modifier.weight(1f))
                 }
@@ -139,6 +149,14 @@ fun ReviewScreen(
                     categories.forEach { cat ->
                         Chip(cat.name, draft.categoryId == cat.id, { onChange(draft.copy(categoryId = cat.id)) }, onPaper = true)
                     }
+                }
+
+                val fuelCategory = categories.firstOrNull { it.id == draft.categoryId }?.name.orEmpty().let {
+                    it.contains("gas", ignoreCase = true) || it.contains("fuel", ignoreCase = true)
+                }
+                if (draft.isFillUp || fuelCategory) {
+                    SlipRule()
+                    FuelEditor(draft, onChange)
                 }
 
                 SlipRule()
@@ -203,6 +221,46 @@ fun ReviewScreen(
             pickingDate = false
         }, onDismiss = { pickingDate = false })
     }
+}
+
+/** Gallons, price and odometer. They're what turn a gas receipt into mileage and price over time. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FuelEditor(draft: Draft, onChange: (Draft) -> Unit) {
+    val c = LocalSlip.current
+    if (!draft.isFillUp) {
+        PaperButton("This was a fill-up", { onChange(draft.copy(isFillUp = true)) }, Modifier.fillMaxWidth())
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Fill-up", style = Type.strong, color = c.ink, modifier = Modifier.weight(1f))
+        Text(
+            "Not a fill-up",
+            style = Type.small,
+            color = c.inkFaded,
+            modifier = Modifier.clickable(role = Role.Button) { onChange(draft.copy(isFillUp = false)) }.padding(vertical = 6.dp),
+        )
+    }
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        PaperField("Gallons", draft.gallonsText, { onChange(draft.copy(gallonsText = it)) }, Modifier.weight(1f), keyboardType = KeyboardType.Decimal, placeholder = "12.345")
+        PaperField("Price per gallon", draft.priceText, { onChange(draft.copy(priceText = it)) }, Modifier.weight(1f), keyboardType = KeyboardType.Decimal, placeholder = "3.459")
+    }
+    Spacer(Modifier.height(10.dp))
+    PaperField(
+        "Odometer",
+        draft.odometerText,
+        { onChange(draft.copy(odometerText = it)) },
+        keyboardType = KeyboardType.Number,
+        placeholder = draft.lastOdometer?.let { "Last time ${FuelUnits.odometer(it)}" } ?: "Miles on the dash",
+    )
+    Spacer(Modifier.height(10.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip("Filled the tank", draft.fullTank, { onChange(draft.copy(fullTank = true)) }, onPaper = true)
+        Chip("Partial fill", !draft.fullTank, { onChange(draft.copy(fullTank = false)) }, onPaper = true)
+    }
+    Spacer(Modifier.height(6.dp))
+    Text("Miles per gallon needs the odometer at two full tanks in a row.", style = Type.small, color = c.inkFaded)
 }
 
 @Composable

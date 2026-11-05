@@ -40,6 +40,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.moblized.spendscan.R
+import com.moblized.spendscan.data.FillUp
+import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.data.Receipt
 import com.moblized.spendscan.data.ReceiptItem
@@ -64,6 +66,7 @@ fun ReceiptDetailScreen(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    fillUp: FillUp? = null,
 ) {
     val c = LocalSlip.current
     var confirmDelete by remember { mutableStateOf(false) }
@@ -110,6 +113,14 @@ fun ReceiptDetailScreen(
                 receipt.payment?.let {
                     Spacer(Modifier.height(4.dp))
                     Text("Paid with $it", style = Type.small, color = c.inkFaded)
+                }
+                fillUp?.let { fill ->
+                    SlipRule()
+                    fill.gallonsMilli?.let { LeaderRow("Gallons", FuelUnits.gallons(it), Modifier.padding(vertical = 2.dp)) }
+                    val price = fill.priceMilli ?: fill.gallonsMilli?.let { FuelUnits.paidPerGallon(receipt.totalCents, it) }
+                    price?.let { LeaderRow("Per gallon", FuelUnits.pricePerGallon(it), Modifier.padding(vertical = 2.dp)) }
+                    fill.odometer?.let { LeaderRow("Odometer", "${FuelUnits.odometer(it)} mi", Modifier.padding(vertical = 2.dp)) }
+                    LeaderRow("Tank", if (fill.fullTank) "Filled" else "Partial", Modifier.padding(vertical = 2.dp))
                 }
                 receipt.note?.let {
                     SlipRule()

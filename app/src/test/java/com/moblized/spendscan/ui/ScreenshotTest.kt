@@ -21,8 +21,14 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.moblized.spendscan.R
+import com.moblized.spendscan.calc.CalcKey
+import com.moblized.spendscan.calc.CalcState
+import com.moblized.spendscan.calc.Calculator
 import com.moblized.spendscan.data.Category
 import com.moblized.spendscan.data.Draft
+import com.moblized.spendscan.data.FillUp
+import com.moblized.spendscan.data.FillUpRow
+import com.moblized.spendscan.data.FuelSummary
 import com.moblized.spendscan.data.ItemHit
 import com.moblized.spendscan.data.ItemStats
 import com.moblized.spendscan.data.MonthSummary
@@ -241,7 +247,6 @@ class ScreenshotTest {
                 ThemeChoice.SYSTEM, {}, 14, {}, "1.0.1", "You have the latest version.", {},
                 ServerConfig(), {}, emptyList(), null, {}, Modifier.weight(1f),
             )
-            BottomBar(Tab.SETTINGS, {}, {})
         }
     }
 
@@ -258,6 +263,82 @@ class ScreenshotTest {
     @Test
     fun reviewReadByServer() = shoot("19_review_server") {
         ReviewScreen(parsedDraft.copy(readNote = "Read by your server."), cats, { File(it) }, {}, {}, {})
+    }
+
+    private fun fill(id: Long, store: String, day: Int, cents: Long, gallons: Long?, price: Long?, odometer: Int?, full: Boolean = true) =
+        FillUpRow(FillUp(id, id, gallons, price, odometer, full), store, nov.atDay(day).toEpochDay(), cents)
+
+    private val fuelRows = listOf(
+        fill(1, "Shell", 2, 8420, 22_400, 3_759, 52_010),
+        fill(2, "Love's", 7, 3010, 8_000, 3_759, 52_140, full = false),
+        fill(3, "Costco Gas", 11, 7296, 21_100, 3_459, 52_500),
+        fill(4, "Shell", 16, 8211, 22_200, 3_699, 52_830),
+        fill(5, "Pilot", 21 - 20, 9150, 24_000, 3_812, 51_700),
+        FillUpRow(FillUp(6, 6, 25_000, null, 51_400), "Exxon", nov.minusMonths(1).atDay(18).toEpochDay(), 9300),
+        FillUpRow(FillUp(7, 7, 21_000, null, null), "Shell", nov.minusMonths(2).atDay(9).toEpochDay(), 7600),
+        FillUpRow(FillUp(8, 8, 23_000, null, null), "Shell", nov.minusMonths(3).atDay(9).toEpochDay(), 8200),
+        FillUpRow(FillUp(9, 9, 20_000, null, null), "Shell", nov.minusMonths(5).atDay(9).toEpochDay(), 7000),
+    )
+
+    @Test
+    @Config(qualifiers = "w412dp-h1300dp-xxhdpi")
+    fun fuel() = shoot("20_fuel") {
+        Column(Modifier.fillMaxSize()) {
+            FuelScreen(FuelSummary.of(fuelRows, nov, today), {}, {}, {}, {}, Modifier.weight(1f))
+            BottomBar(Tab.FUEL, {}, {})
+        }
+    }
+
+    @Test
+    fun fuelDark() = shoot("21_fuel_dark", dark = true) {
+        Column(Modifier.fillMaxSize()) {
+            FuelScreen(FuelSummary.of(fuelRows, nov, today), {}, {}, {}, {}, Modifier.weight(1f))
+            BottomBar(Tab.FUEL, {}, {})
+        }
+    }
+
+    @Test
+    fun fuelEmpty() = shoot("22_fuel_empty") {
+        Column(Modifier.fillMaxSize()) {
+            FuelScreen(FuelSummary.of(emptyList(), nov, today), {}, {}, {}, {}, Modifier.weight(1f))
+            BottomBar(Tab.FUEL, {}, {})
+        }
+    }
+
+    private val calc = listOf("12.50", "+", "3.49", "=", "45.20", "×", "18", "%", "=", "84.20", "+", "30.10", "+", "12")
+        .fold(CalcState()) { s, token ->
+            when {
+                token == "=" -> Calculator.press(s, CalcKey.Equals)
+                token == "%" -> Calculator.press(s, CalcKey.Percent)
+                token.length == 1 && token[0] in "+×" -> Calculator.press(s, CalcKey.Op(token[0]))
+                else -> token.fold(s) { st, ch -> Calculator.press(st, if (ch == '.') CalcKey.Dot else CalcKey.Digit(ch)) }
+            }
+        }
+
+    @Test
+    fun calculator() = shoot("23_calculator") { CalculatorScreen(calc, false, {}, {}, {}, {}) }
+
+    @Test
+    fun calculatorForTotal() = shoot("24_calculator_total", dark = true) { CalculatorScreen(calc, true, {}, {}, {}, {}) }
+
+    @Test
+    @Config(qualifiers = "w412dp-h1000dp-xxhdpi")
+    fun reviewFillUp() = shoot("25_review_fillup") {
+        ReviewScreen(
+            parsedDraft.copy(
+                store = "Shell", isFillUp = true, gallonsText = "22.400", priceText = "3.759", totalText = "84.20",
+                categoryId = 3, items = emptyList(), lastOdometer = 52_010,
+            ),
+            cats, { File(it) }, {}, {}, {},
+        )
+    }
+
+    @Test
+    fun detailFillUp() = shoot("26_detail_fillup") {
+        ReceiptDetailScreen(
+            detailReceipt.copy(store = "Shell", categoryId = 3, subtotalCents = null, taxCents = null, tipCents = null, totalCents = 8420),
+            emptyList(), "Gas & auto", { File(it) }, {}, {}, {}, fillUp = FillUp(1, 1, 22_400, 3_759, 52_010),
+        )
     }
 
     @Test

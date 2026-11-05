@@ -14,6 +14,7 @@ import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
@@ -23,6 +24,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.moblized.spendscan.App
 import com.moblized.spendscan.MainActivity
+import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.server.FakeHttpServer
 import com.moblized.spendscan.server.ServerConfig
@@ -322,7 +324,7 @@ class AppFlowTest {
         val pm = app.packageManager
         fun state(name: String) = pm.getComponentEnabledSetting(ComponentName(app.packageName, "com.moblized.spendscan.$name"))
 
-        tap("Settings")
+        tapIcon("Settings")
         tap("Dark")
         compose.waitUntil(timeoutMillis = 5_000) { state("LauncherDark") == PackageManager.COMPONENT_ENABLED_STATE_ENABLED }
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED, state("LauncherLight"))
@@ -397,7 +399,7 @@ class AppFlowTest {
     fun yourServerIsSetUpInSettings() {
         val http = fakeServer("{}")
         try {
-            tap("Settings")
+            tapIcon("Settings")
             waitFor("Language model server")
             tap("Find models")
             waitFor("Add the server's address first.")
@@ -420,7 +422,7 @@ class AppFlowTest {
     @Test
     fun aBadServerAddressSaysWhatToCheck() {
         val closed = ServerSocket(0).use { it.localPort }
-        tap("Settings")
+        tapIcon("Settings")
         compose.onNode(hasSetTextAction() and hasText("http://192.168.1.20:11434")).performTextInput("http://127.0.0.1:$closed")
         tap("Find models")
         compose.waitUntil(timeoutMillis = 30_000) {
@@ -428,9 +430,133 @@ class AppFlowTest {
         }
     }
 
+    private fun key(label: String) = compose.onNodeWithTag("key $label").performClick()
+
+    private fun keys(labels: String) = labels.filter { it != ' ' }.forEach { key(it.toString()) }
+
+    @Test
+    fun theCalculatorAddsUpAndKeepsATape() {
+        tapIcon("Calculator")
+        waitFor("Calculator")
+        keys("12.5 + 3 =")
+        waitFor("15.50")
+        waitFor("12.5 + 3")
+
+        // It's still there after leaving.
+        tapIcon("Back")
+        waitFor("Scan a receipt")
+        tapIcon("Calculator")
+        waitFor("12.5 + 3")
+
+        keys("8 ÷ 0 =")
+        waitFor("Can't divide by zero")
+        key("C")
+        waitGone("Can't divide by zero")
+
+        tap("Clear tape")
+        waitGone("12.5 + 3")
+    }
+
+    @Test
+    fun theCalculatorFillsInATotal() {
+        tap("Add one by hand")
+        waitFor("Add a receipt")
+        field(0).performTextInput("Kroger")
+        tapIcon("Work out the total")
+        waitFor("Work out the total")
+        keys("20 + 5")
+        tap("Use ${money(2500)}")
+        waitFor("Add a receipt")
+        compose.onNode(hasSetTextAction() and hasText("25.00")).assertExists()
+        // What was typed in the receipt is still there.
+        compose.onNode(hasSetTextAction() and hasText("Kroger")).assertExists()
+        tap("Save receipt")
+        waitFor("Saved Kroger, ${money(2500)}.")
+    }
+
+    @Test
+    fun aFillUpIsTrackedUnderFuel() {
+        tap("Fuel")
+        waitFor("No fill-ups yet")
+        tap("Add a fill-up")
+        waitFor("Fill-up")
+        field(0).performTextInput("Shell")
+        // Gallons and price work out the total when it's left empty.
+        field(2).performTextInput("10")
+        field(3).performTextInput("3.50")
+        field(4).performTextInput("50,000")
+        tap("Save receipt")
+        waitFor("Saved Shell, ${money(3500)}.")
+        waitFor("Fuel so far")
+        waitFor("10 gal at ${FuelUnits.pricePerGallon(3500)}, 50,000 mi")
+        waitFor("Add your odometer at two full tanks in a row to see your miles per gallon.")
+
+        // It counts as spending once, under Gas & auto.
+        val saved = runBlocking { app.dao.receiptsNow() }.single()
+        val gas = runBlocking { app.dao.categoriesNow() }.first { it.name == "Gas & auto" }
+        assertEquals(gas.id, saved.categoryId)
+        assertEquals(3500L, saved.totalCents)
+
+        // The second full tank makes mileage possible: 300 miles on 10 gallons.
+        tapIcon("Add a fill-up")
+        waitFor("Fill-up")
+        waitFor("Last time 50,000")
+        field(0).performTextInput("Exxon")
+        field(1).performTextInput("30")
+        field(2).performTextInput("10")
+        field(4).performTextInput("50300")
+        tap("Save receipt")
+        waitFor("Saved Exxon, ${money(3000)}.")
+        waitFor("30.0")
+        waitFor("10 gal at ${FuelUnits.pricePerGallon(3000)}, 30.0 mpg, 50,300 mi")
+
+        // A fill-up opens as its receipt, and deleting that takes it off Fuel too.
+        tap("Exxon")
+        waitFor("Per gallon")
+        waitFor("Odometer")
+        tapIcon("Delete receipt")
+        tap("Delete")
+        waitFor("Deleted Exxon, ${money(3000)}.")
+        waitGone("Exxon")
+        assertEquals(1, runBlocking { app.dao.fillUpsNow() }.size)
+    }
+
+    @Test
+    fun aGasReceiptCanBecomeAFillUpAndBack() {
+        tap("Add one by hand")
+        waitFor("Add a receipt")
+        field(0).performTextInput("Shell")
+        field(1).performTextInput("40")
+        // Only offered for the gas category, so other receipts stay simple.
+        compose.onAllNodesWithText("This was a fill-up").assertCountEquals(0)
+        tap("Gas & auto")
+        tap("This was a fill-up")
+        waitFor("Fill-up")
+        tap("Not a fill-up")
+        waitFor("This was a fill-up")
+        tap("This was a fill-up")
+        field(2).performTextInput("10")
+        tap("Partial fill")
+        tap("Save receipt")
+        waitFor("Saved Shell, ${money(4000)}.")
+        val saved = runBlocking { app.dao.fillUpsNow() }.single()
+        assertEquals(10_000L, saved.fill.gallonsMilli)
+        assertEquals(false, saved.fill.fullTank)
+
+        // Edit it back to an ordinary receipt.
+        tap("Shell")
+        waitFor("Per gallon")
+        tapIcon("Edit receipt")
+        tap("Not a fill-up")
+        tap("Save receipt")
+        waitFor("Saved Shell, ${money(4000)}.")
+        compose.waitUntil(timeoutMillis = 5_000) { runBlocking { app.dao.fillUpsNow() }.isEmpty() }
+        assertEquals(1, runBlocking { app.dao.receiptsNow() }.size)
+    }
+
     @Test
     fun exportIsOffWithNothingToExport() {
-        tap("Settings")
+        tapIcon("Settings")
         waitFor("Nothing to export yet")
     }
 }

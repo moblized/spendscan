@@ -30,8 +30,26 @@ data class Draft(
     /** Who read it, when you have a server: your model, or this phone because the server couldn't. */
     val readNote: String? = null,
     val createdAt: Long = 0,
+    val isFillUp: Boolean = false,
+    val gallonsText: String = "",
+    val priceText: String = "",
+    val odometerText: String = "",
+    val fullTank: Boolean = true,
+    /** The odometer at the last fill-up, as a reminder of roughly what to expect. */
+    val lastOdometer: Int? = null,
 ) {
-    val totalCents: Long? get() = Money.parse(totalText)
+    val gallonsMilli: Long? get() = FuelUnits.parseMilli(gallonsText)?.takeIf { it > 0 }
+    val priceMilli: Long? get() = FuelUnits.parseMilli(priceText)?.takeIf { it > 0 }
+
+    /** What the gallons and price come to, for a fill-up with no total typed in. */
+    val fuelCostCents: Long?
+        get() {
+            val gallons = gallonsMilli
+            val price = priceMilli
+            return if (isFillUp && gallons != null && price != null) FuelUnits.cost(gallons, price) else null
+        }
+
+    val totalCents: Long? get() = Money.parse(totalText) ?: fuelCostCents
     val canSave: Boolean get() = store.isNotBlank() && totalCents != null && categoryId != null
 
     private fun cents(s: String): Long? = Money.parse(s)
@@ -75,6 +93,16 @@ data class Draft(
         createdAt = if (createdAt != 0L) createdAt else now,
     )
 
+    fun toFillUp(): FillUp? =
+        if (!isFillUp) null
+        else FillUp(
+            receiptId = 0,
+            gallonsMilli = gallonsMilli,
+            priceMilli = priceMilli,
+            odometer = FuelUnits.parseOdometer(odometerText),
+            fullTank = fullTank,
+        )
+
     fun toItems(): List<ReceiptItem> = items.mapNotNull { i ->
         val amount = cents(i.amountText)
         if (i.name.isBlank() || amount == null) null
@@ -93,6 +121,7 @@ data class Draft(
             today: LocalDate,
             categoryId: Long?,
             readNote: String? = null,
+            lastOdometer: Int? = null,
         ): Draft {
             if (parsed == null || (parsed.totalCents == null && parsed.store == null && parsed.items.isEmpty())) {
                 return Draft(
@@ -103,6 +132,7 @@ data class Draft(
                     unsure = ReceiptField.entries.toSet(),
                     readFailed = true,
                     readNote = readNote,
+                    lastOdometer = lastOdometer,
                 )
             }
             return Draft(
@@ -120,10 +150,14 @@ data class Draft(
                 rawText = parsed.rawText,
                 unsure = parsed.unsure,
                 readNote = readNote,
+                isFillUp = parsed.fuel != null,
+                gallonsText = parsed.fuel?.let { FuelUnits.plainMilli(it.gallonsMilli) }.orEmpty(),
+                priceText = parsed.fuel?.priceMilli?.let(FuelUnits::plainMilli).orEmpty(),
+                lastOdometer = lastOdometer,
             )
         }
 
-        fun fromSaved(r: Receipt, items: List<ReceiptItem>) = Draft(
+        fun fromSaved(r: Receipt, items: List<ReceiptItem>, fill: FillUp? = null, lastOdometer: Int? = null) = Draft(
             receiptId = r.id,
             store = r.store,
             date = r.date,
@@ -139,6 +173,12 @@ data class Draft(
             photos = r.photoList,
             rawText = r.rawText,
             createdAt = r.createdAt,
+            isFillUp = fill != null,
+            gallonsText = fill?.gallonsMilli?.let(FuelUnits::plainMilli).orEmpty(),
+            priceText = fill?.priceMilli?.let(FuelUnits::plainMilli).orEmpty(),
+            odometerText = fill?.odometer?.toString().orEmpty(),
+            fullTank = fill?.fullTank ?: true,
+            lastOdometer = lastOdometer,
         )
     }
 }

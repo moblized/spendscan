@@ -10,6 +10,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
@@ -69,6 +70,37 @@ interface SpendDao {
     )
     fun searchItems(query: String): Flow<List<ItemHit>>
 
+    // Fill-ups
+    @Query(
+        "SELECT f.*, r.store, r.dateEpochDay, r.totalCents FROM fill_ups f " +
+            "JOIN receipts r ON r.id = f.receiptId ORDER BY r.dateEpochDay DESC, f.id DESC",
+    )
+    fun fillUps(): Flow<List<FillUpRow>>
+
+    @Query(
+        "SELECT f.*, r.store, r.dateEpochDay, r.totalCents FROM fill_ups f " +
+            "JOIN receipts r ON r.id = f.receiptId ORDER BY r.dateEpochDay DESC, f.id DESC",
+    )
+    suspend fun fillUpsNow(): List<FillUpRow>
+
+    @Query("SELECT * FROM fill_ups WHERE receiptId = :receiptId")
+    fun fillUp(receiptId: Long): Flow<FillUp?>
+
+    @Query("SELECT * FROM fill_ups WHERE receiptId = :receiptId")
+    suspend fun fillUpNow(receiptId: Long): FillUp?
+
+    @Query(
+        "SELECT f.odometer FROM fill_ups f JOIN receipts r ON r.id = f.receiptId " +
+            "WHERE f.odometer IS NOT NULL ORDER BY r.dateEpochDay DESC, f.id DESC LIMIT 1",
+    )
+    suspend fun lastOdometer(): Int?
+
+    @Insert
+    suspend fun insertFillUp(fillUp: FillUp): Long
+
+    @Query("DELETE FROM fill_ups WHERE receiptId = :receiptId")
+    suspend fun deleteFillUp(receiptId: Long)
+
     @Query("SELECT categoryId FROM receipts WHERE store = :store COLLATE NOCASE ORDER BY id DESC LIMIT 1")
     suspend fun lastCategoryFor(store: String): Long?
 
@@ -98,7 +130,7 @@ interface SpendDao {
 
     /** Saves a new or edited receipt with its items as one change. */
     @Transaction
-    suspend fun saveReceipt(receipt: Receipt, items: List<ReceiptItem>): Long {
+    suspend fun saveReceipt(receipt: Receipt, items: List<ReceiptItem>, fillUp: FillUp? = null): Long {
         val id = if (receipt.id == 0L) {
             insertReceipt(receipt)
         } else {
@@ -107,6 +139,8 @@ interface SpendDao {
             receipt.id
         }
         insertItems(items.mapIndexed { i, item -> item.copy(id = 0, receiptId = id, position = i) })
+        deleteFillUp(id)
+        if (fillUp != null) insertFillUp(fillUp.copy(id = 0, receiptId = id))
         return id
     }
 
@@ -117,11 +151,24 @@ interface SpendDao {
     }
 }
 
-@Database(entities = [Category::class, Receipt::class, ReceiptItem::class], version = 1, exportSchema = false)
+@Database(entities = [Category::class, Receipt::class, ReceiptItem::class, FillUp::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): SpendDao
 
     companion object {
+        /** Version 2 adds fill-ups. Everything already saved stays as it is. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `fill_ups` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`receiptId` INTEGER NOT NULL, `gallonsMilli` INTEGER, `priceMilli` INTEGER, `odometer` INTEGER, " +
+                        "`fullTank` INTEGER NOT NULL, FOREIGN KEY(`receiptId`) REFERENCES `receipts`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE )",
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_fill_ups_receiptId` ON `fill_ups` (`receiptId`)")
+            }
+        }
+
         /** Fills in the starting categories as part of creating the database, so nothing can read it half set up. */
         val StartingCategories = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
@@ -138,6 +185,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun open(context: Context): AppDatabase =
             Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "spendscan.db")
                 .addCallback(StartingCategories)
+                .addMigrations(MIGRATION_1_2)
                 .build()
     }
 }

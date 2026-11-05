@@ -76,6 +76,8 @@ fun AppRoot(
                 Route.Tabs -> Tabs(model, tab, onScan)
                 Route.Review -> ReviewRoute(model)
                 is Route.Detail -> DetailRoute(model, route.id)
+                Route.Settings -> SettingsRoute(model)
+                is Route.Calculator -> CalculatorRoute(model, route.forTotal)
             }
 
             SnackbarHost(
@@ -103,8 +105,8 @@ private fun Tabs(model: AppModel, tab: Tab, onScan: () -> Unit) {
             when (tab) {
                 Tab.MONTH -> MonthRoute(model, onScan)
                 Tab.RECEIPTS -> ReceiptsRoute(model, onScan)
+                Tab.FUEL -> FuelRoute(model, onScan)
                 Tab.BUDGETS -> BudgetsRoute(model)
-                Tab.SETTINGS -> SettingsRoute(model)
             }
         }
         BottomBar(tab, model::selectTab, onScan)
@@ -128,6 +130,34 @@ private fun MonthRoute(model: AppModel, onScan: () -> Unit) {
         onAllReceipts = { model.showReceipts(ReceiptFilter(month = s.month)) },
         onScan = onScan,
         onAddByHand = model::addByHand,
+        onCalculator = { model.open(Route.Calculator(forTotal = false)) },
+        onSettings = { model.open(Route.Settings) },
+    )
+}
+
+@Composable
+private fun FuelRoute(model: AppModel, onScan: () -> Unit) {
+    val summary by model.fuelSummary.collectAsStateWithLifecycle()
+    val s = summary ?: return
+    FuelScreen(
+        s = s,
+        onMonth = model::showFuelMonth,
+        onOpen = { model.open(Route.Detail(it)) },
+        onAdd = model::addFillUp,
+        onScan = onScan,
+    )
+}
+
+@Composable
+private fun CalculatorRoute(model: AppModel, forTotal: Boolean) {
+    val state by model.calculator.collectAsStateWithLifecycle()
+    CalculatorScreen(
+        state = state,
+        forTotal = forTotal,
+        onKey = model::pressKey,
+        onClearTape = model::clearTape,
+        onUse = model::useCalculatorAnswer,
+        onBack = { model.back() },
     )
 }
 
@@ -190,6 +220,7 @@ private fun SettingsRoute(model: AppModel) {
         serverModels = serverModels,
         serverStatus = serverStatus,
         onFindModels = model::findModels,
+        onBack = { model.back() },
     )
 }
 
@@ -199,6 +230,8 @@ private fun DetailRoute(model: AppModel, id: Long) {
     val itemsFlow = remember(id) { model.items(id) }
     val receipt by receiptFlow.collectAsState(initial = null)
     val items by itemsFlow.collectAsState(initial = emptyList())
+    val fillFlow = remember(id) { model.fillUp(id) }
+    val fill by fillFlow.collectAsState(initial = null)
     val categories by model.categories.collectAsStateWithLifecycle()
     val r = receipt ?: return
     ReceiptDetailScreen(
@@ -209,6 +242,7 @@ private fun DetailRoute(model: AppModel, id: Long) {
         onBack = { model.back() },
         onEdit = { model.edit(id) },
         onDelete = { model.deleteReceipt(id) },
+        fillUp = fill,
     )
 }
 
@@ -224,6 +258,7 @@ private fun ReviewRoute(model: AppModel) {
         onChange = model::updateDraft,
         onSave = { model.saveDraft() },
         onBack = { model.back() },
+        onCalculator = { model.open(Route.Calculator(forTotal = true)) },
     )
 }
 

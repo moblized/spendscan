@@ -81,6 +81,44 @@ class DatabaseTest {
     }
 
     @Test
+    fun aFillUpIsSavedWithItsReceipt() = runTest {
+        val fill = FillUp(receiptId = 0, gallonsMilli = 12_345, priceMilli = 3_459, odometer = 52_310)
+        val id = dao.saveReceipt(receipt(store = "Shell", total = 4270), emptyList(), fill)
+        val row = dao.fillUpsNow().single()
+        assertEquals("Shell", row.store)
+        assertEquals(4270L, row.totalCents)
+        assertEquals(12_345L, row.fill.gallonsMilli)
+        assertEquals(id, row.fill.receiptId)
+        assertEquals(52_310, dao.lastOdometer())
+        assertEquals(1, dao.fillUps().first().size)
+
+        // Saving again replaces it rather than adding a second.
+        dao.saveReceipt(dao.receiptNow(id)!!, emptyList(), fill.copy(odometer = 52_400))
+        assertEquals(52_400, dao.fillUpNow(id)!!.odometer)
+        assertEquals(1, dao.fillUpsNow().size)
+
+        // Saving without one removes it, and leaves the receipt.
+        dao.saveReceipt(dao.receiptNow(id)!!, emptyList())
+        assertNull(dao.fillUpNow(id))
+        assertEquals(1, dao.receiptRows().first().size)
+
+        // Deleting the receipt takes its fill-up.
+        dao.saveReceipt(dao.receiptNow(id)!!, emptyList(), fill)
+        dao.deleteReceipt(id)
+        assertEquals(0, dao.fillUpsNow().size)
+        assertNull(dao.lastOdometer())
+    }
+
+    @Test
+    fun lastOdometerIsFromTheLatestFillUpThatHasOne() = runTest {
+        dao.saveReceipt(receipt().copy(dateEpochDay = day), emptyList(), FillUp(receiptId = 0, odometer = 100))
+        dao.saveReceipt(receipt().copy(dateEpochDay = day + 5), emptyList(), FillUp(receiptId = 0, odometer = 500))
+        dao.saveReceipt(receipt().copy(dateEpochDay = day + 2), emptyList(), FillUp(receiptId = 0, odometer = 300))
+        dao.saveReceipt(receipt().copy(dateEpochDay = day + 9), emptyList(), FillUp(receiptId = 0))
+        assertEquals(500, dao.lastOdometer())
+    }
+
+    @Test
     fun remembersCategoryAndSpotsDuplicates() = runTest {
         val id = dao.saveReceipt(receipt(category = 2), emptyList())
         assertEquals(2L, dao.lastCategoryFor("KROGER"))

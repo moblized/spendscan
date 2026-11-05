@@ -159,6 +159,43 @@ class ReceiptParserTest {
     }
 
     @Test
+    fun fuelReceiptsGiveGallonsAndPrice() {
+        val pump = parse(
+            """
+            SHELL
+            PUMP 5
+            REGULAR
+            12.345 GAL @ 3.459/GAL
+            FUEL SALE ${'$'}42.70
+            """,
+        )
+        assertEquals(ParsedFuel(12345, 3459), pump.fuel)
+
+        fun fuelOf(text: String) = parse(text).fuel
+        assertEquals(ParsedFuel(22400, 3759), fuelOf("Exxon\nGALLONS: 22.400\nPRICE/GAL ${'$'}3.759\nTOTAL ${'$'}84.20"))
+        assertEquals(ParsedFuel(22400, 3759), fuelOf("Road Stop\nDIESEL 22.40G ${'$'}3.759/G\nTOTAL 84.20"))
+        assertEquals(ParsedFuel(10000, 3599), fuelOf("Sunoco\nVolume 10.000\nPPG 3.599\nTotal 35.99"))
+        assertEquals(ParsedFuel(15120, 3299), fuelOf("Pump 3\n15.120 @ 3.299\nTotal 49.88"))
+        // No price printed: the gallons are still useful.
+        assertEquals(ParsedFuel(12345, null), fuelOf("BP\n12.345 GAL\nTotal 42.70"))
+    }
+
+    @Test
+    fun otherGallonsAreNotFuel() {
+        assertNull(parse("KROGER\n2% MILK GAL 3.49\nTOTAL 3.49").fuel)
+        assertNull(parse("KROGER\nMILK 1.00 GAL 3.49\nTOTAL 3.49").fuel)
+        // A gas station that sells milk.
+        assertNull(parse("WAWA\nMILK 1.00 GAL 3.49\nTOTAL 3.49").fuel)
+        assertNull(parse("WAWA\nGAL MILK 3.49\nTOTAL 3.49").fuel)
+        // Coffee and a snack at a gas station.
+        assertNull(parse("SHELL\nCOFFEE 2.49\nCHIPS 1.99\nTOTAL 4.48").fuel)
+        // Paint by the gallon at a hardware store.
+        assertNull(parse("HOME DEPOT\nINTERIOR PAINT 1.000 GAL 34.98\nTOTAL 34.98").fuel)
+        // Gallons that can't be right for the money.
+        assertNull(parse("Pump 3\n50.000 GAL\nTotal 10.00").fuel)
+    }
+
+    @Test
     fun cashAndChangeNeverBecomeTheTotal() {
         val r = parse(
             """

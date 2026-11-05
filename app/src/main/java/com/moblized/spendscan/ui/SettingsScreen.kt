@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -22,10 +23,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.moblized.spendscan.R
 import com.moblized.spendscan.data.ThemeChoice
 import com.moblized.spendscan.server.ServerConfig
 import com.moblized.spendscan.ui.theme.LocalSlip
@@ -46,10 +49,14 @@ fun SettingsScreen(
     serverStatus: String?,
     onFindModels: () -> Unit,
     modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
 ) {
     val c = LocalSlip.current
-    Column(modifier.fillMaxSize().statusBarsPadding().imePadding()) {
-        Text("Settings", style = Type.lead, color = c.onCounter, modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 12.dp))
+    Column(modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            CounterIcon(R.drawable.ic_back, "Back", onBack)
+            Text("Settings", style = Type.lead, color = c.onCounter)
+        }
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, bottom = 16.dp),
         ) {
@@ -95,7 +102,7 @@ fun SettingsScreen(
                     enabled = receiptCount > 0,
                 )
                 Spacer(Modifier.height(4.dp))
-                Text("Makes one file of receipts and one of items, for a spreadsheet.", style = Type.small, color = c.inkFaded)
+                Text("Makes files of your receipts, items and fill-ups, for a spreadsheet.", style = Type.small, color = c.inkFaded)
 
                 SlipRule()
 

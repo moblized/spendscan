@@ -270,6 +270,7 @@ fun PaperField(
     placeholder: String? = null,
     singleLine: Boolean = true,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val c = LocalSlip.current
     Column(modifier) {
@@ -295,16 +296,20 @@ fun PaperField(
             visualTransformation = visualTransformation,
             modifier = Modifier.fillMaxWidth(),
             decorationBox = { inner ->
-                Box(
+                Row(
                     Modifier
                         .fillMaxWidth()
                         .background(fill, RoundedCornerShape(4.dp))
                         .padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (value.isEmpty() && placeholder != null) {
-                        Text(placeholder, style = style, color = if (flagged) c.onHighlighter.copy(alpha = 0.7f) else c.inkFaded, maxLines = 1)
+                    Box(Modifier.weight(1f)) {
+                        if (value.isEmpty() && placeholder != null) {
+                            Text(placeholder, style = style, color = if (flagged) c.onHighlighter.copy(alpha = 0.7f) else c.inkFaded, maxLines = 1)
+                        }
+                        inner()
                     }
-                    inner()
+                    trailing?.invoke()
                 }
             },
         )
@@ -333,8 +338,8 @@ fun BottomBar(tab: Tab, onTab: (Tab) -> Unit, onScan: () -> Unit, modifier: Modi
             Icon(painterResource(R.drawable.ic_scan), null, tint = c.onHighlighter, modifier = Modifier.size(24.dp))
             Text("Scan", style = Type.small.copy(fontWeight = FontWeight.Bold), color = c.onHighlighter)
         }
+        BarItem(R.drawable.ic_fuel, "Fuel", tab == Tab.FUEL, { onTab(Tab.FUEL) }, Modifier.weight(1f))
         BarItem(R.drawable.ic_budget, "Budgets", tab == Tab.BUDGETS, { onTab(Tab.BUDGETS) }, Modifier.weight(1f))
-        BarItem(R.drawable.ic_settings, "Settings", tab == Tab.SETTINGS, { onTab(Tab.SETTINGS) }, Modifier.weight(1f))
     }
 }
 

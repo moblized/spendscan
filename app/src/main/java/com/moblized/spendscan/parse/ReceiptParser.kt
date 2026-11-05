@@ -30,6 +30,9 @@ enum class ReceiptField { STORE, DATE, TOTAL }
 
 data class ParsedItem(val name: String, val quantity: Double = 1.0, val amountCents: Long)
 
+/** What a fuel receipt says was pumped. Thousandths of a gallon, and of a dollar per gallon. */
+data class ParsedFuel(val gallonsMilli: Long, val priceMilli: Long? = null)
+
 data class ParsedReceipt(
     val store: String?,
     val date: LocalDate?,
@@ -46,6 +49,8 @@ data class ParsedReceipt(
     /** Fields a person should look at before saving. */
     val unsure: Set<ReceiptField>,
     val rawText: String,
+    /** Set when this looks like a fuel purchase. */
+    val fuel: ParsedFuel? = null,
 )
 
 /**
@@ -304,7 +309,56 @@ object ReceiptParser {
             suggestedCategory = chain?.category ?: Chains.categoryFromText(raw),
             unsure = unsure,
             rawText = rawText,
+            fuel = readFuel(raw, chain, totalCents),
         )
+    }
+
+    // --- Fuel -----------------------------------------------------------------------------------------------------
+
+    private val FUEL_WORDS = Regex("""\b(unleaded|unl|diesel|pump\s*#?\s*\d+|fuel|gasoline|premium|mid-?grade|e85|regular)\b""", ic)
+    private val GALLONS = listOf(
+        Regex("""(?<![\d.])(\d{1,3}[.,]\d{1,3})\s*(?:gallons?|gals?|g)\b""", ic),
+        Regex("""\b(?:gallons?|gals?|volume|vol)\b\s*[:=]?\s*(\d{1,3}[.,]\d{1,3})(?![\d/])""", ic),
+        Regex("""(?<![\d.])(\d{1,3}[.,]\d{3})\s*(?:@|[xX])\s*\$?\d[.,]\d{2,3}"""),
+    )
+    private val PRICES = listOf(
+        Regex("""\$?\s*(\d[.,]\d{2,3})\s*(?:/|per\s+)\s*(?:gallon|gal|g)\b""", ic),
+        Regex("""(?:@|\bat\b|\b[xX]\b)\s*\$?\s*(\d[.,]\d{2,3})\b""", ic),
+        Regex("""(?:price\s*(?:/|per)\s*(?:gallon|gal|g)|ppg|gal(?:lon)?\s*price|unit\s*price|price)\s*[:=]?\s*\$?\s*(\d[.,]\d{2,3})\b""", ic),
+    )
+
+    private fun milli(text: String): Long? {
+        val parts = text.replace(',', '.').split('.')
+        val whole = parts[0].toLongOrNull() ?: return null
+        val part = parts.getOrNull(1).orEmpty().padEnd(3, '0').take(3).toLongOrNull() ?: return null
+        return whole * 1000 + part
+    }
+
+    /**
+     * Finds gallons and price on a fuel receipt. It takes more than the word "gal", because milk is sold by the gallon
+     * too: this has to be a gas station or mention fuel, and the numbers have to make sense as a price per gallon.
+     */
+    private fun readFuel(rows: List<String>, chain: Chains.Chain?, totalCents: Long?): ParsedFuel? {
+        if (chain?.category != Chains.AUTO && rows.none { FUEL_WORDS.containsMatchIn(it) }) return null
+        var gallons: Long? = null
+        for (row in rows) {
+            val found = GALLONS.firstNotNullOfOrNull { it.find(row) } ?: continue
+            val text = found.groupValues[1]
+            val threeDecimals = text.substringAfter('.', text.substringAfter(',', "")).length == 3
+            if (threeDecimals || '@' in row || FUEL_WORDS.containsMatchIn(row)) {
+                gallons = milli(text)?.takeIf { it in 500..400_000 }
+                if (gallons != null) break
+            }
+        }
+        val pumped = gallons ?: return null
+        val price = rows.firstNotNullOfOrNull { row ->
+            PRICES.firstNotNullOfOrNull { it.find(row) }?.let { milli(it.groupValues[1]) }?.takeIf { it in 1_000..12_000 }
+        }
+        if (totalCents != null) {
+            val paid = totalCents * 10_000 / pumped
+            if (paid !in 1_500..12_000) return null
+        }
+        return ParsedFuel(pumped, price)
     }
 
     private data class TotalPick(val line: Line, val strength: Int)

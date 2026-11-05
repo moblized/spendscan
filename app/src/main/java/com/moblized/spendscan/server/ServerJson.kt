@@ -1,5 +1,6 @@
 package com.moblized.spendscan.server
 
+import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.parse.ReceiptParser
 import org.json.JSONArray
@@ -25,7 +26,7 @@ object ServerJson {
             .put("required", JSONArray(listOf("name", "quantity", "amount")))
             .put("additionalProperties", false)
         val texts = listOf("store", "date", "payment", "category")
-        val numbers = listOf("total", "subtotal", "tax", "tip", "discount")
+        val numbers = listOf("total", "subtotal", "tax", "tip", "discount", "gallons", "price_per_gallon")
         val properties = JSONObject()
         texts.forEach { properties.put(it, nullable("string")) }
         numbers.forEach { properties.put(it, nullable("number")) }
@@ -125,12 +126,23 @@ object ServerJson {
             payment = text(o, "payment"),
             category = text(o, "category"),
             items = items,
+            gallonsMilli = thousandths(o, "gallons"),
+            priceMilli = thousandths(o, "price_per_gallon"),
         )
         return receipt.takeIf { it.hasAnything }
     }
 
     private fun text(o: JSONObject, key: String): String? =
         if (o.isNull(key)) null else o.optString(key).trim().takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+
+    private fun thousandths(o: JSONObject, key: String): Long? {
+        if (o.isNull(key)) return null
+        return when (val v = o.opt(key)) {
+            is Number -> v.toDouble().takeIf { !it.isNaN() && !it.isInfinite() && it > 0 }?.let { (it * 1000).roundToLong() }
+            is String -> FuelUnits.parseMilli(v)?.takeIf { it > 0 }
+            else -> null
+        }
+    }
 
     private fun cents(o: JSONObject, key: String): Long? {
         if (o.isNull(key)) return null

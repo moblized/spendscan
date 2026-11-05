@@ -2,6 +2,7 @@ package com.moblized.spendscan.server
 
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.parse.Chains
+import com.moblized.spendscan.parse.ParsedFuel
 import com.moblized.spendscan.parse.ParsedItem
 import com.moblized.spendscan.parse.ParsedReceipt
 import com.moblized.spendscan.parse.ReceiptField
@@ -69,6 +70,8 @@ data class ServerReceipt(
     val payment: String?,
     val category: String?,
     val items: List<ServerItem>,
+    val gallonsMilli: Long? = null,
+    val priceMilli: Long? = null,
 ) {
     val hasAnything: Boolean get() = !store.isNullOrBlank() || totalCents != null || items.isNotEmpty()
 }
@@ -106,6 +109,15 @@ object ServerMerge {
         val onPaper = total != null && rawText.replace(",", "").contains(Money.plain(total))
         val backedUp = addsUp || onPaper || close(total, phone?.totalCents)
 
+        val gallons = server.gallonsMilli?.takeIf { g ->
+            g in 500..400_000 && (total == null || (total * 10_000 / g) in 1_500..12_000)
+        }
+        val fuel = if (gallons != null) {
+            ParsedFuel(gallons, server.priceMilli?.takeIf { it in 1_000..12_000 } ?: phone?.fuel?.priceMilli)
+        } else {
+            phone?.fuel
+        }
+
         return ParsedReceipt(
             store = store,
             date = date,
@@ -123,6 +135,7 @@ object ServerMerge {
                 if (!backedUp) add(ReceiptField.TOTAL)
             },
             rawText = rawText,
+            fuel = fuel,
         )
     }
 }
@@ -140,6 +153,7 @@ object ServerPrompt {
         appendLine("""- payment: how it was paid, like "Visa 4242", "Debit" or "Cash".""")
         appendLine("""- category: the best fit from this list: ${categories.joinToString(", ")}.""")
         appendLine("""- items: everything bought, in order. name is as printed. quantity is how many, and 1 if not shown or if sold by weight. amount is the price of that whole line as a positive number. Leave out tax, totals, payments and discounts.""")
+        appendLine("""- gallons, price_per_gallon: only for vehicle fuel pumped, like 12.345 and 3.459. Otherwise null.""")
         appendLine("""- Money is a plain number like 12.99. Use null for anything not printed or that you can't read. Don't guess.""")
         if (phoneText != null) {
             appendLine()

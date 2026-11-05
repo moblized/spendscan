@@ -65,6 +65,8 @@ fun MonthScreen(
     onScan: () -> Unit,
     onAddByHand: () -> Unit,
     modifier: Modifier = Modifier,
+    onCalculator: () -> Unit = {},
+    onSettings: () -> Unit = {},
 ) {
     val c = LocalSlip.current
     Column(modifier.fillMaxSize().statusBarsPadding()) {
@@ -78,6 +80,8 @@ fun MonthScreen(
                 modifier = Modifier.weight(1f),
             )
             CounterIcon(R.drawable.ic_forward, "Next month", onNext, enabled = !summary.isCurrent)
+            CounterIcon(R.drawable.ic_calculator, "Calculator", onCalculator)
+            CounterIcon(R.drawable.ic_settings, "Settings", onSettings)
         }
 
         // The slip feeds out from under the header, like paper from a till.

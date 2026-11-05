@@ -55,6 +55,33 @@ data class ReceiptItem(
     val position: Int = 0,
 )
 
+/** The fuel details of a receipt that was a fill-up. The money stays on the receipt, so it's only ever counted once. */
+@Entity(
+    tableName = "fill_ups",
+    foreignKeys = [ForeignKey(entity = Receipt::class, parentColumns = ["id"], childColumns = ["receiptId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index(value = ["receiptId"], unique = true)],
+)
+data class FillUp(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val receiptId: Long,
+    /** Thousandths of a gallon. */
+    val gallonsMilli: Long? = null,
+    /** The printed price per gallon, in thousandths of a dollar. */
+    val priceMilli: Long? = null,
+    val odometer: Int? = null,
+    val fullTank: Boolean = true,
+)
+
+/** A fill-up with the receipt details it needs. */
+data class FillUpRow(
+    @Embedded val fill: FillUp,
+    val store: String,
+    val dateEpochDay: Long,
+    val totalCents: Long,
+) {
+    val date: LocalDate get() = LocalDate.ofEpochDay(dateEpochDay)
+}
+
 data class ReceiptRow(
     @Embedded val receipt: Receipt,
     val itemCount: Int,

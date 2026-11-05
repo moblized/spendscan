@@ -8,9 +8,14 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.moblized.spendscan.App
+import com.moblized.spendscan.calc.CalcKey
+import com.moblized.spendscan.calc.CalcState
+import com.moblized.spendscan.calc.Calculator
 import com.moblized.spendscan.data.Category
 import com.moblized.spendscan.data.Draft
 import com.moblized.spendscan.data.FALLBACK_CATEGORY
+import com.moblized.spendscan.data.FillUp
+import com.moblized.spendscan.data.FuelSummary
 import com.moblized.spendscan.data.ItemHit
 import com.moblized.spendscan.data.ItemStats
 import com.moblized.spendscan.data.Money
@@ -23,6 +28,7 @@ import com.moblized.spendscan.data.ThemeChoice
 import com.moblized.spendscan.data.budgetNote
 import com.moblized.spendscan.export.Csv
 import com.moblized.spendscan.parse.Chains
+import com.moblized.spendscan.parse.ReceiptField
 import com.moblized.spendscan.parse.ReceiptParser
 import com.moblized.spendscan.scan.ReceiptOcr
 import com.moblized.spendscan.server.ModelList
@@ -54,7 +60,7 @@ import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
 
-enum class Tab { MONTH, RECEIPTS, BUDGETS, SETTINGS }
+enum class Tab { MONTH, RECEIPTS, FUEL, BUDGETS }
 
 /** What's happening to a scan: the phone reads it first, then your server if you have one. */
 enum class ReadingStage { NONE, PHONE, SERVER }
@@ -63,6 +69,10 @@ sealed interface Route {
     data object Tabs : Route
     data object Review : Route
     data class Detail(val id: Long) : Route
+    data object Settings : Route
+
+    /** [forTotal] means the answer can go into the receipt being reviewed. */
+    data class Calculator(val forTotal: Boolean) : Route
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -220,8 +230,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val categoryId = pickCategory(reading?.store, reading?.suggestedCategory)
-            startDraft(Draft.fromParsed(reading, photos, today, categoryId, note))
+            val suggested = if (reading?.fuel != null) Chains.AUTO else reading?.suggestedCategory
+            val categoryId = pickCategory(reading?.store, suggested)
+            startDraft(Draft.fromParsed(reading, photos, today, categoryId, note, dao.lastOdometer()))
             this@AppModel.reading.value = ReadingStage.NONE
         }
     }
@@ -303,11 +314,54 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun addFillUp() {
+        viewModelScope.launch {
+            val cats = dao.categoriesNow()
+            val category = cats.firstOrNull { it.name.equals(Chains.AUTO, ignoreCase = true) }
+                ?: cats.firstOrNull { it.name.contains("gas", ignoreCase = true) || it.name.contains("fuel", ignoreCase = true) }
+                ?: cats.firstOrNull { it.fixed }
+                ?: cats.firstOrNull()
+            startDraft(Draft.blank(LocalDate.now(), category?.id).copy(isFillUp = true, lastOdometer = dao.lastOdometer()))
+        }
+    }
+
     fun edit(id: Long) {
         viewModelScope.launch {
             val r = dao.receiptNow(id) ?: return@launch
-            startDraft(Draft.fromSaved(r, dao.itemsNow(id)))
+            startDraft(Draft.fromSaved(r, dao.itemsNow(id), dao.fillUpNow(id), dao.lastOdometer()))
         }
+    }
+
+    fun fillUp(id: Long): Flow<FillUp?> = dao.fillUp(id)
+
+    // Fuel
+    val fuelMonth = MutableStateFlow(YearMonth.now())
+
+    val fuelSummary: StateFlow<FuelSummary?> = combine(dao.fillUps(), fuelMonth) { rows, m ->
+        withContext(Dispatchers.Default) { FuelSummary.of(rows, m, LocalDate.now()) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun showFuelMonth(m: YearMonth) {
+        if (!m.isAfter(YearMonth.now())) fuelMonth.value = m
+    }
+
+    // Calculator
+    val calculator = MutableStateFlow(CalcState())
+
+    fun pressKey(key: CalcKey) {
+        calculator.value = Calculator.press(calculator.value, key)
+    }
+
+    fun clearTape() {
+        calculator.value = Calculator.clearTape(calculator.value)
+    }
+
+    /** Puts the calculator's answer into the receipt's total and goes back to it. */
+    fun useCalculatorAnswer() {
+        val cents = calculator.value.cents ?: return
+        draft.value?.let { draft.value = it.copy(totalText = Money.plain(cents), unsure = it.unsure - ReceiptField.TOTAL) }
+        calculator.value = Calculator.press(calculator.value, CalcKey.Clear)
+        pop()
     }
 
     fun updateDraft(d: Draft) {
@@ -340,7 +394,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             val receiptMonth = YearMonth.from(receipt.date)
             val (from, to) = range(receiptMonth)
             val before = dao.categorySpent(receipt.categoryId, from, to)
-            dao.saveReceipt(receipt, d.toItems())
+            dao.saveReceipt(receipt, d.toItems(), d.toFillUp())
             val after = dao.categorySpent(receipt.categoryId, from, to)
             val category = dao.categoriesNow().firstOrNull { it.id == receipt.categoryId }
             val note = category?.let { budgetNote(it.name, it.budgetCents, before, after) }
@@ -350,9 +404,14 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             pop()
             if (d.receiptId == null) {
                 // Show where it landed.
-                month.value = receiptMonth
-                tab.value = Tab.MONTH
-                printSlip.value = true
+                if (d.isFillUp) {
+                    fuelMonth.value = receiptMonth
+                    tab.value = Tab.FUEL
+                } else {
+                    month.value = receiptMonth
+                    tab.value = Tab.MONTH
+                    printSlip.value = true
+                }
             }
             val saved = "Saved ${receipt.store}, ${Money.format(receipt.totalCents)}."
             message.value = if (note != null) "$saved $note" else saved
@@ -398,12 +457,15 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 val stamp = LocalDate.now()
                 val a = File(dir, "spendscan-receipts-$stamp.csv").apply { writeText(Csv.receipts(receipts, cats)) }
                 val b = File(dir, "spendscan-items-$stamp.csv").apply { writeText(Csv.items(receipts, items, cats)) }
-                listOf(a, b).map { FileProvider.getUriForFile(app, "${app.packageName}.files", it) }
+                val c = File(dir, "spendscan-fuel-$stamp.csv").apply { writeText(Csv.fuel(dao.fillUpsNow())) }
+                listOf(a, b, c).map { FileProvider.getUriForFile(app, "${app.packageName}.files", it) }
             }
             val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
                 type = "text/csv"
                 putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
-                clipData = ClipData.newRawUri("SpendScan export", uris[0]).apply { addItem(ClipData.Item(uris[1])) }
+                clipData = ClipData.newRawUri("SpendScan export", uris[0]).apply {
+                    uris.drop(1).forEach { addItem(ClipData.Item(it)) }
+                }
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             app.startActivity(

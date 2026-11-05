@@ -1,6 +1,8 @@
 package com.moblized.spendscan.export
 
 import com.moblized.spendscan.data.Category
+import com.moblized.spendscan.data.FillUpRow
+import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.data.Receipt
 import com.moblized.spendscan.data.ReceiptItem
@@ -31,6 +33,24 @@ object Csv {
                     money(r.discountCents),
                     cell(r.payment),
                     cell(r.note),
+                ).joinToString(","),
+            ).append("\r\n")
+        }
+        return sb.toString()
+    }
+
+    fun fuel(rows: List<FillUpRow>): String {
+        val sb = StringBuilder("Date,Station,Gallons,Price per gallon,Total,Odometer,Full tank\r\n")
+        for (r in rows) {
+            sb.append(
+                listOf(
+                    r.date.toString(),
+                    cell(r.store),
+                    r.fill.gallonsMilli?.let(FuelUnits::plainMilli).orEmpty(),
+                    r.fill.priceMilli?.let(FuelUnits::plainMilli).orEmpty(),
+                    money(r.totalCents),
+                    r.fill.odometer?.toString().orEmpty(),
+                    if (r.fill.fullTank) "yes" else "no",
                 ).joinToString(","),
             ).append("\r\n")
         }

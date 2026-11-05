@@ -202,6 +202,21 @@ class ServerApiTest {
     }
 
     @Test
+    fun readsFuelDetails() {
+        val r = ServerJson.parseReceipt("""{"total":42.70,"gallons":12.345,"price_per_gallon":"3.459"}""", today)!!
+        assertEquals(12345L, r.gallonsMilli)
+        assertEquals(3459L, r.priceMilli)
+        val none = ServerJson.parseReceipt("""{"total":5,"gallons":null,"price_per_gallon":0}""", today)!!
+        assertNull(none.gallonsMilli)
+        assertNull(none.priceMilli)
+
+        val merged = ServerMerge.merge(r, null, today)
+        assertEquals(com.moblized.spendscan.parse.ParsedFuel(12345, 3459), merged.fuel)
+        // Gallons that can't be right for the money are dropped.
+        assertNull(ServerMerge.merge(r.copy(gallonsMilli = 200_000), null, today).fuel)
+    }
+
+    @Test
     fun readsContentGivenAsParts() {
         val json = JSONObject().put(
             "choices",
