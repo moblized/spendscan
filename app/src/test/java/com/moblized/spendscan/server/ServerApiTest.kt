@@ -211,6 +211,18 @@ class ServerApiTest {
     }
 
     @Test
+    fun openWebUiWithNoModelsForThisKeyIsStillFoundAtApi() {
+        val webui = FakeHttpServer { request ->
+            if (request.path == "/api/models") 200 to """{"data":[]}""" else 200 to "<!doctype html><html></html>"
+        }
+        webui.use {
+            val (used, found) = api.findModels(ServerConfig(webui.address, key = "sk-user"))
+            assertEquals("${webui.address}/api", used.url)
+            assertEquals(ModelList.Found(emptyList()), found)
+        }
+    }
+
+    @Test
     fun aWebPageIsNotAModelList() {
         openWebUi().use { webui ->
             assertEquals(ModelList.Failed(ServerProblem.NO_USABLE_ANSWER), api.models(ServerConfig(webui.address)))

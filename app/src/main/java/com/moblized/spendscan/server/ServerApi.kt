@@ -71,7 +71,8 @@ class ServerApi {
         val openWebUi = config.withOpenWebUiPath()
         val second = models(openWebUi)
         return when {
-            second is ModelList.Found && second.names.isNotEmpty() -> openWebUi to second
+            // A real model list at /api, even an empty one, means that's where the API is.
+            second is ModelList.Found && (second.names.isNotEmpty() || first !is ModelList.Found) -> openWebUi to second
             // The right place, but the key needs sorting out.
             second is ModelList.Failed && second.problem == ServerProblem.REFUSED -> openWebUi to second
             else -> config to first

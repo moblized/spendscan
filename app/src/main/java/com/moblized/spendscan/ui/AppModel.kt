@@ -285,7 +285,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                     val names = ServerModels.tidy(result.names)
                     serverModels.value = names
                     if (names.isEmpty()) {
-                        serverStatus.value = "Connected, but the server didn't list any models. Type the model's name below."
+                        val added = if (pathAdded) "Added /api to the address. " else ""
+                        serverStatus.value = if (used.apiBase.endsWith("/api")) {
+                            "${added}Connected, but no models are available to this API key. In Open WebUI, make the model Public under " +
+                                "Admin Panel > Settings > Models, and check that Open WebUI's own model picker shows it."
+                        } else {
+                            "Connected, but the server didn't list any models. Check that a model is downloaded, or type its name below."
+                        }
                     } else {
                         // Start on a model that can see photos, unless one's already chosen.
                         val current = prefs.server.value

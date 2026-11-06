@@ -445,6 +445,22 @@ class AppFlowTest {
     }
 
     @Test
+    fun openWebUiWithNoModelsSaysWhereToLook() {
+        val webui = FakeHttpServer { request ->
+            if (request.path == "/api/models") 200 to """{"data":[]}""" else 200 to "<!doctype html><html></html>"
+        }
+        try {
+            tapIcon("Settings")
+            compose.onNode(hasSetTextAction() and hasText("http://192.168.1.20:11434")).performTextInput(webui.address)
+            tap("Find models")
+            waitFor("Added /api to the address. Connected, but no models are available to this API key.", substring = true)
+            assertEquals("${webui.address}/api", app.prefs.server.value.url)
+        } finally {
+            webui.close()
+        }
+    }
+
+    @Test
     fun aBadServerAddressSaysWhatToCheck() {
         val closed = ServerSocket(0).use { it.localPort }
         tapIcon("Settings")
