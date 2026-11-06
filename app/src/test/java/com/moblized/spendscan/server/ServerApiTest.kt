@@ -175,6 +175,60 @@ class ServerApiTest {
         assertNull(authHeader)
     }
 
+    /** Open WebUI: its web page at every path it doesn't know, the API under /api, and a key to get in. */
+    private fun openWebUi(key: String = "sk-good") = FakeHttpServer { request ->
+        val authorized = request.header("Authorization") == "Bearer $key"
+        when (request.path) {
+            "/api/models" -> if (authorized) 200 to """{"data":[{"id":"llama3.2:latest"},{"id":"qwen3-vl:8b"}]}""" else 401 to """{"detail":"Not authenticated"}"""
+            "/api/chat/completions" -> if (authorized) {
+                200 to JSONObject().put("choices", JSONArray().put(JSONObject().put("message", JSONObject().put("content", goodAnswer)))).toString()
+            } else {
+                401 to "{}"
+            }
+            else -> 200 to "<!doctype html><html><head><title>Open WebUI</title></head><body></body></html>"
+        }
+    }
+
+    @Test
+    fun openWebUiIsFoundAtApi() {
+        openWebUi().use { webui ->
+            val (used, found) = api.findModels(ServerConfig(webui.address, key = "sk-good"))
+            assertEquals("${webui.address}/api", used.url)
+            assertEquals(listOf("llama3.2:latest", "qwen3-vl:8b"), (found as ModelList.Found).names)
+            // And scans work there.
+            val outcome = api.read(used.copy(model = "qwen3-vl:8b"), listOf(photo), "x", emptyList(), today)
+            assertEquals(693L, (outcome as ServerOutcome.Read).receipt.totalCents)
+        }
+    }
+
+    @Test
+    fun openWebUiWithTheWrongKeyStillFindsThePath() {
+        openWebUi().use { webui ->
+            val (used, found) = api.findModels(ServerConfig(webui.address, key = "wrong"))
+            assertEquals("${webui.address}/api", used.url)
+            assertEquals(ModelList.Failed(ServerProblem.REFUSED), found)
+        }
+    }
+
+    @Test
+    fun aWebPageIsNotAModelList() {
+        openWebUi().use { webui ->
+            assertEquals(ModelList.Failed(ServerProblem.NO_USABLE_ANSWER), api.models(ServerConfig(webui.address)))
+        }
+    }
+
+    @Test
+    fun anAddressThatWorksIsLeftAlone() {
+        val (used, found) = api.findModels(config)
+        assertEquals(config, used)
+        assertEquals(2, (found as ModelList.Found).names.size)
+        // An address with its own path isn't second-guessed.
+        openWebUi().use { webui ->
+            val typed = ServerConfig("${webui.address}/v1", key = "sk-good")
+            assertEquals(typed, api.findModels(typed).first)
+        }
+    }
+
     @Test
     fun readsTheWaysModelsWriteJson() {
         fun parse(s: String) = ServerJson.parseReceipt(s, today)

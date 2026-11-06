@@ -29,6 +29,18 @@ class ServerReadingTest {
     }
 
     @Test
+    fun openWebUiLivesAtApi() {
+        assertFalse(ServerConfig("https://openwebui.moblized.org").hasPath)
+        assertFalse(ServerConfig("192.168.1.20:11434/").hasPath)
+        assertTrue(ServerConfig("https://openwebui.moblized.org/api").hasPath)
+        assertEquals("https://openwebui.moblized.org/api", ServerConfig("https://openwebui.moblized.org/").withOpenWebUiPath().url)
+        assertEquals("https://openwebui.moblized.org/api", ServerConfig("https://openwebui.moblized.org/api").apiBase)
+        assertEquals("http://x:3000/api", ServerConfig("x:3000").withOpenWebUiPath().apiBase)
+        // A pasted endpoint isn't a path of its own.
+        assertFalse(ServerConfig("http://x:3000/models").hasPath)
+    }
+
+    @Test
     fun aServerNeedsAnAddressAndAModel() {
         assertTrue(ServerConfig("x", model = "m").isSet)
         assertFalse(ServerConfig("x").isSet)

@@ -23,7 +23,7 @@ If your phone backs up to Google, Android includes the receipt list in that back
 
 ## Reading scans with your own language model
 
-Any server with an OpenAI-style API works, including Ollama, LM Studio, llama.cpp and vLLM. Use a model that can read images, such as `qwen3-vl:8b`. A model that can't see photos still works, from the text the phone read.
+Any server with an OpenAI-style API works, including Ollama, LM Studio, Open WebUI, llama.cpp and vLLM. For Open WebUI, enter its address and the app adds `/api` itself. Use an API key from Open WebUI's **Settings > Account > API keys**, which an admin has to turn on under **Admin Settings > Authentication** first. Use a model that can read images, such as `qwen3-vl:8b`. A model that can't see photos still works, from the text the phone read.
 
 1. Make the server accept connections from other devices. For Ollama, set `OLLAMA_HOST=0.0.0.0`. For LM Studio, turn on "Serve on Local Network". Allow its port through the computer's firewall.
 2. In SpendScan, open **Settings**, enter the address (for example `http://192.168.1.20:11434`), and tap **Find models**.

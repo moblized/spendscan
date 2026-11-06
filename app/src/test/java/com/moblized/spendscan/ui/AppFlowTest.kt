@@ -423,6 +423,28 @@ class AppFlowTest {
     }
 
     @Test
+    fun openWebUiGetsItsPathAddedInSettings() {
+        val webui = FakeHttpServer { request ->
+            when (request.path) {
+                "/api/models" -> 200 to """{"data":[{"id":"qwen3-vl:8b"}]}"""
+                else -> 200 to "<!doctype html><html><body>Open WebUI</body></html>"
+            }
+        }
+        try {
+            tapIcon("Settings")
+            compose.onNode(hasSetTextAction() and hasText("http://192.168.1.20:11434")).performTextInput(webui.address)
+            tap("Find models")
+            waitFor("Connected. This server keeps its API at /api, so that's been added to the address. Pick a model that can read images.")
+            assertEquals("${webui.address}/api", app.prefs.server.value.url)
+            assertEquals("qwen3-vl:8b", app.prefs.server.value.model)
+            // The field shows the corrected address, and typing still works after.
+            compose.onNode(hasSetTextAction() and hasText("${webui.address}/api")).assertExists()
+        } finally {
+            webui.close()
+        }
+    }
+
+    @Test
     fun aBadServerAddressSaysWhatToCheck() {
         val closed = ServerSocket(0).use { it.localPort }
         tapIcon("Settings")

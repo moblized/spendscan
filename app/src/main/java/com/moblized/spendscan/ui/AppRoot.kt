@@ -208,6 +208,7 @@ private fun SettingsRoute(model: AppModel) {
     val server by model.server.collectAsStateWithLifecycle()
     val serverModels by model.serverModels.collectAsStateWithLifecycle()
     val serverStatus by model.serverStatus.collectAsStateWithLifecycle()
+    val urlRevision by model.serverUrlRevision.collectAsStateWithLifecycle()
     SettingsScreen(
         theme = theme,
         onTheme = model::setTheme,
@@ -222,6 +223,7 @@ private fun SettingsRoute(model: AppModel) {
         serverStatus = serverStatus,
         onFindModels = model::findModels,
         onBack = { model.back() },
+        serverUrlRevision = urlRevision,
     )
 }
 

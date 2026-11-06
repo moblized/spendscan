@@ -49,11 +49,33 @@ class ServerApi {
     }
 
     fun models(config: ServerConfig): ModelList = try {
-        ModelList.Found(ServerJson.parseModels(answer(open(config, "/models", MODELS_TIMEOUT_MS))))
+        ServerJson.parseModels(answer(open(config, "/models", MODELS_TIMEOUT_MS)))?.let { ModelList.Found(it) }
+            ?: ModelList.Failed(ServerProblem.NO_USABLE_ANSWER)
     } catch (e: HttpFailure) {
         ModelList.Failed(if (e.code == 401 || e.code == 403) ServerProblem.REFUSED else ServerProblem.NO_USABLE_ANSWER)
     } catch (_: IOException) {
         ModelList.Failed(ServerProblem.UNREACHABLE)
+    }
+
+    /**
+     * Lists the models, and works out where the API is. A plain address that doesn't answer at "/v1" is tried at
+     * "/api", which is where Open WebUI keeps it. The address that worked comes back with the models.
+     */
+    fun findModels(config: ServerConfig): Pair<ServerConfig, ModelList> {
+        val first = models(config)
+        val worthAnotherTry = !config.hasPath && (
+            (first is ModelList.Failed && first.problem == ServerProblem.NO_USABLE_ANSWER) ||
+                (first is ModelList.Found && first.names.isEmpty())
+            )
+        if (!worthAnotherTry) return config to first
+        val openWebUi = config.withOpenWebUiPath()
+        val second = models(openWebUi)
+        return when {
+            second is ModelList.Found && second.names.isNotEmpty() -> openWebUi to second
+            // The right place, but the key needs sorting out.
+            second is ModelList.Failed && second.problem == ServerProblem.REFUSED -> openWebUi to second
+            else -> config to first
+        }
     }
 
     private fun post(config: ServerConfig, body: String): String {

@@ -50,6 +50,7 @@ fun SettingsScreen(
     onFindModels: () -> Unit,
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
+    serverUrlRevision: Int = 0,
 ) {
     val c = LocalSlip.current
     Column(modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -73,7 +74,7 @@ fun SettingsScreen(
 
                 SlipRule()
 
-                ServerSection(server, onServer, serverModels, serverStatus, onFindModels)
+                ServerSection(server, onServer, serverModels, serverStatus, onFindModels, serverUrlRevision)
 
                 SlipRule()
 
@@ -129,10 +130,11 @@ private fun ServerSection(
     models: List<String>,
     status: String?,
     onFindModels: () -> Unit,
+    urlRevision: Int,
 ) {
     val c = LocalSlip.current
-    // What's typed stays here, so saving never gets in the way of the keyboard.
-    var url by rememberSaveable { mutableStateOf(server.url) }
+    // What's typed stays here, so saving never gets in the way of the keyboard. It only resets when the app corrects the address.
+    var url by rememberSaveable(urlRevision) { mutableStateOf(server.url) }
     var key by rememberSaveable { mutableStateOf(server.key) }
 
     Text("Language model server", style = Type.strong, color = c.ink)

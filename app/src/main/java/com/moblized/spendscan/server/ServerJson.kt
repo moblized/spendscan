@@ -79,9 +79,9 @@ object ServerJson {
         return body.toString()
     }
 
-    /** The model names from GET /models. */
-    fun parseModels(json: String): List<String> {
-        val data = runCatching { JSONObject(json).optJSONArray("data") }.getOrNull() ?: return emptyList()
+    /** The model names from GET /models. Null when the answer isn't a model list at all, like a web page. */
+    fun parseModels(json: String): List<String>? {
+        val data = runCatching { JSONObject(json).optJSONArray("data") }.getOrNull() ?: return null
         return (0 until data.length()).mapNotNull { i -> data.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() } }
     }
 

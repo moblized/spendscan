@@ -12,19 +12,29 @@ import java.time.LocalDate
 import kotlin.math.abs
 import kotlin.math.max
 
-/** Where your language model runs. Works with anything that speaks the OpenAI API: Ollama, LM Studio, llama.cpp, vLLM. */
+/** Where your language model runs. Works with anything that speaks the OpenAI API: Ollama, LM Studio, Open WebUI, llama.cpp, vLLM. */
 data class ServerConfig(val url: String = "", val key: String = "", val model: String = "") {
     val isSet: Boolean get() = url.isNotBlank() && model.isNotBlank()
 
-    /** The API's root. "192.168.1.20:11434" becomes "http://192.168.1.20:11434/v1"; an address with its own path stays as it is. */
-    val apiBase: String
+    /** The address as typed, with a scheme, and without a pasted endpoint on the end. */
+    private val root: String
         get() {
             var u = url.trim().trimEnd('/')
             if (u.isEmpty()) return ""
             if (!u.contains("://")) u = "http://$u"
             for (suffix in listOf("/chat/completions", "/models")) u = u.removeSuffix(suffix)
-            return if (u.substringAfter("://").contains('/')) u else "$u/v1"
+            return u
         }
+
+    /** True when the address names its own path, like ".../v1" or ".../api", rather than just a host. */
+    val hasPath: Boolean get() = root.substringAfter("://").contains('/')
+
+    /** The API's root. "192.168.1.20:11434" becomes "http://192.168.1.20:11434/v1"; an address with its own path stays as it is. */
+    val apiBase: String
+        get() = root.let { if (it.isEmpty() || hasPath) it else "$it/v1" }
+
+    /** The same server at Open WebUI's API path. Open WebUI answers "/v1" with its web page instead. */
+    fun withOpenWebUiPath(): ServerConfig = copy(url = "$root/api")
 
     /** Plain http to somewhere beyond the home network, where anyone along the way could read the photos. */
     val sendsInTheClear: Boolean

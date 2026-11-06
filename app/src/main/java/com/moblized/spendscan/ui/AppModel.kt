@@ -258,6 +258,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     val serverModels = MutableStateFlow<List<String>>(emptyList())
     val serverStatus = MutableStateFlow<String?>(null)
 
+    /** Goes up when the app corrects the address itself, so the field on screen shows the change. */
+    val serverUrlRevision = MutableStateFlow(0)
+
     fun setServer(config: ServerConfig) {
         prefs.setServer(config)
     }
@@ -271,7 +274,12 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         serverStatus.value = "Checking..."
         serverModels.value = emptyList()
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { app.server.models(config) }
+            val (used, result) = withContext(Dispatchers.IO) { app.server.findModels(config) }
+            val pathAdded = used.url != config.url
+            if (pathAdded) {
+                prefs.setServer(prefs.server.value.copy(url = used.url))
+                serverUrlRevision.value++
+            }
             when (result) {
                 is ModelList.Found -> {
                     val names = ServerModels.tidy(result.names)
@@ -282,12 +290,14 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                         // Start on a model that can see photos, unless one's already chosen.
                         val current = prefs.server.value
                         if (current.model.isBlank()) prefs.setServer(current.copy(model = names.first()))
-                        serverStatus.value = "Connected. Pick a model that can read images."
+                        serverStatus.value = if (pathAdded) "Connected. This server keeps its API at /api, so that's been added to the address. Pick a model that can read images."
+                        else "Connected. Pick a model that can read images."
                     }
                 }
                 is ModelList.Failed -> serverStatus.value = when (result.problem) {
                     ServerProblem.UNREACHABLE -> "Couldn't reach that address. Check that the server is running and set to accept other devices, and that this phone can get to it."
-                    ServerProblem.REFUSED -> "The server turned down that API key."
+                    ServerProblem.REFUSED -> if (pathAdded) "Found the server's API at /api and added it to the address, but it turned down that API key."
+                    else "The server turned down that API key."
                     ServerProblem.NO_USABLE_ANSWER -> "Something answered at that address, but it didn't list any models. Check the address and port, or type the model's name below."
                 }
             }
