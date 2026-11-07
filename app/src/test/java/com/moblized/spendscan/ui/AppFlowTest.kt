@@ -478,6 +478,7 @@ class AppFlowTest {
         val paperless = FakePaperless()
         try {
             addByHand("Kroger", "6.93")
+            waitFor("Spent so far")
             tapIcon("Settings")
             waitFor("Paperless-ngx")
             compose.onNode(hasSetTextAction() and hasText("https://paperless.example.com")).performScrollTo().performTextInput(paperless.address)
