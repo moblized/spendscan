@@ -1,5 +1,6 @@
 package com.moblized.spendscan.parse
 
+import com.moblized.spendscan.data.FuelType
 import java.time.DateTimeException
 import java.time.LocalDate
 import kotlin.math.abs
@@ -31,7 +32,8 @@ enum class ReceiptField { STORE, DATE, TOTAL }
 data class ParsedItem(val name: String, val quantity: Double = 1.0, val amountCents: Long)
 
 /** What a fuel receipt says was pumped. Thousandths of a gallon, and of a dollar per gallon. */
-data class ParsedFuel(val gallonsMilli: Long, val priceMilli: Long? = null)
+/** [type] is null when the receipt doesn't say, or names more than one. */
+data class ParsedFuel(val gallonsMilli: Long, val priceMilli: Long? = null, val type: FuelType? = null)
 
 data class ParsedReceipt(
     val store: String?,
@@ -358,7 +360,7 @@ object ReceiptParser {
             val paid = totalCents * 10_000 / pumped
             if (paid !in 1_500..12_000) return null
         }
-        return ParsedFuel(pumped, price)
+        return ParsedFuel(pumped, price, FuelType.read(rows))
     }
 
     private data class TotalPick(val line: Line, val strength: Int)

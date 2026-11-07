@@ -1,5 +1,6 @@
 package com.moblized.spendscan.server
 
+import com.moblized.spendscan.data.FuelType
 import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.parse.Chains
@@ -85,6 +86,7 @@ data class ServerReceipt(
     val items: List<ServerItem>,
     val gallonsMilli: Long? = null,
     val priceMilli: Long? = null,
+    val fuelType: FuelType? = null,
 ) {
     val hasAnything: Boolean get() = !store.isNullOrBlank() || totalCents != null || items.isNotEmpty()
 }
@@ -125,10 +127,10 @@ object ServerMerge {
             g in 500..400_000 && (total == null || (total * 10_000 / g) in 1_500..12_000)
         }
         val fuel = if (gallons != null) {
-            ParsedFuel(gallons, server.priceMilli?.takeIf { it in 1_000..12_000 } ?: phone?.fuel?.priceMilli)
+            ParsedFuel(gallons, server.priceMilli?.takeIf { it in 1_000..12_000 } ?: phone?.fuel?.priceMilli, phone?.fuel?.type)
         } else {
             phone?.fuel
-        }
+        }?.let { it.copy(type = server.fuelType ?: it.type) }
 
         // On fuel, gallons times price is its own check on the total.
         val fuelPrice = fuel?.priceMilli
@@ -169,6 +171,7 @@ object ServerPrompt {
         appendLine("""- gallons: the amount pumped, usually to three decimals, like 12.345.""")
         appendLine("""- price_per_gallon: the price of the grade that was pumped, like 3.459. Pumps can show several grades. Pick the one where gallons times price equals the total.""")
         appendLine("""- store: the fuel brand, only if it's on the pump. Otherwise null.""")
+        appendLine("""- fuel_type: regular, midgrade, premium, diesel or e85, only if the display shows which grade was pumped. Otherwise null.""")
         appendLine("""- category: the best fit from this list: ${categories.joinToString(", ")}.""")
         appendLine("""- date: only if shown, as YYYY-MM-DD. Today is $today.""")
         appendLine("""- subtotal, tax, tip, discount, payment: null. items: an empty list.""")
@@ -191,6 +194,7 @@ object ServerPrompt {
         appendLine("""- category: the best fit from this list: ${categories.joinToString(", ")}.""")
         appendLine("""- items: everything bought, in order. name is as printed. quantity is how many, and 1 if not shown or if sold by weight. amount is the price of that whole line as a positive number. Leave out tax, totals, payments and discounts.""")
         appendLine("""- gallons, price_per_gallon: only for vehicle fuel pumped, like 12.345 and 3.459. Otherwise null.""")
+        appendLine("""- fuel_type: for vehicle fuel, the grade printed: regular, midgrade, premium, diesel or e85. Otherwise null.""")
         appendLine("""- Money is a plain number like 12.99. Use null for anything not printed or that you can't read. Don't guess.""")
         if (phoneText != null) {
             appendLine()

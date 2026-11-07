@@ -44,6 +44,63 @@ object FuelUnits {
     fun mpg(value: Double): String = String.format(Locale.US, "%.1f", value)
 }
 
+/** What went in the tank. */
+enum class FuelType(val label: String, val word: String) {
+    REGULAR("Regular", "regular"),
+    MIDGRADE("Midgrade", "midgrade"),
+    PREMIUM("Premium", "premium"),
+    DIESEL("Diesel", "diesel"),
+    E85("E85", "E85"),
+    ;
+
+    companion object {
+        fun of(name: String?): FuelType? = entries.firstOrNull { it.name == name }
+
+        private val ic = RegexOption.IGNORE_CASE
+        private val unleaded = """(?:unl|unld|unleaded)"""
+
+        // The other grades first: "premium unleaded" is premium, not regular.
+        private val GRADES = listOf(
+            DIESEL to Regex("""\b(?:diesel|dsl|ulsd|bio-?diesel|b20)\b""", ic),
+            E85 to Regex("""\b(?:e-?85|flex\s*fuel)\b""", ic),
+            PREMIUM to Regex(
+                """\b(?:premium|prem|super\s*$unleaded|super\s*9[1-4]|9[1-4]\s*super|supreme|ultimate|v-?power|9[1-4]\s*oct(?:ane)?)\b""",
+                ic,
+            ),
+            MIDGRADE to Regex(
+                """\b(?:mid-?\s?grade|mid\s*$unleaded|plus\s*$unleaded|$unleaded\s*plus|plus\s*89|89\s*plus|synergy\s*extra|8[89]\s*oct(?:ane)?)\b""",
+                ic,
+            ),
+        )
+        private val REGULAR_WORDS = Regex("""\b(?:regular|reg\s*$unleaded|reg\s*87|87\s*(?:oct(?:ane)?|$unleaded)|$unleaded\s*87)\b""", ic)
+
+        // Every gasoline grade is unleaded, so on its own the word only means regular when nothing else is named.
+        private val UNLEADED_WORD = Regex("""\b$unleaded\b""", ic)
+
+        /**
+         * The grade a receipt or pump names. Null when it names none, or several, like a pump's row of grade
+         * buttons, so a guess never stands in for what was really pumped.
+         */
+        fun read(rows: List<String>): FuelType? {
+            val found = mutableSetOf<FuelType>()
+            var unleadedOnly = false
+            for (row in rows) {
+                val named = GRADES.filter { (_, words) -> words.containsMatchIn(row) }.map { it.first }
+                when {
+                    named.isNotEmpty() -> found += named
+                    REGULAR_WORDS.containsMatchIn(row) -> found += REGULAR
+                    UNLEADED_WORD.containsMatchIn(row) -> unleadedOnly = true
+                }
+            }
+            if (found.isEmpty() && unleadedOnly) return REGULAR
+            return found.singleOrNull()
+        }
+    }
+}
+
+/** One fuel type's share of a month. */
+data class FuelTypeLine(val type: FuelType, val spentCents: Long, val gallonsMilli: Long, val averagePriceMilli: Long?, val count: Int)
+
 data class FillUpLine(val row: FillUpRow, val mpg: Double?)
 
 data class FuelMonthBar(val month: YearMonth, val cents: Long)
@@ -64,6 +121,8 @@ data class FuelSummary(
     val bars: List<FuelMonthBar>,
     val lines: List<FillUpLine>,
     val allFillUps: Int,
+    /** The month's fill-ups by what went in the tank, most spent first. Fill-ups with no type are left out. */
+    val byType: List<FuelTypeLine> = emptyList(),
 ) {
     companion object {
         private const val MOST_BELIEVABLE_MPG = 100.0
@@ -157,6 +216,18 @@ data class FuelSummary(
                     .sortedWith(compareByDescending<FillUpRow> { it.dateEpochDay }.thenByDescending { it.fill.id })
                     .map { FillUpLine(it, mileage.perFill[it.fill.id]) },
                 allFillUps = rows.size,
+                byType = inMonth.groupBy { it.fill.type }.mapNotNull { (type, fills) ->
+                    type ?: return@mapNotNull null
+                    val pumped = fills.filter { (it.fill.gallonsMilli ?: 0) > 0 }
+                    val typeGallons = pumped.sumOf { it.fill.gallonsMilli ?: 0 }
+                    FuelTypeLine(
+                        type = type,
+                        spentCents = fills.sumOf { it.totalCents },
+                        gallonsMilli = typeGallons,
+                        averagePriceMilli = FuelUnits.paidPerGallon(pumped.sumOf { it.totalCents }, typeGallons),
+                        count = fills.size,
+                    )
+                }.sortedByDescending { it.spentCents },
             )
         }
     }

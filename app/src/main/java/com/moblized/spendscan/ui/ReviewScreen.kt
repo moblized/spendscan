@@ -46,6 +46,7 @@ import com.moblized.spendscan.R
 import com.moblized.spendscan.data.Category
 import com.moblized.spendscan.data.Draft
 import com.moblized.spendscan.data.DraftItem
+import com.moblized.spendscan.data.FuelType
 import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.parse.ReceiptField
@@ -232,7 +233,7 @@ fun ReviewScreen(
 private fun FuelEditor(draft: Draft, onChange: (Draft) -> Unit) {
     val c = LocalSlip.current
     if (!draft.isFillUp) {
-        PaperButton("This was a fill-up", { onChange(draft.copy(isFillUp = true)) }, Modifier.fillMaxWidth())
+        PaperButton("This was a fill-up", { onChange(draft.asFillUp()) }, Modifier.fillMaxWidth())
         return
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -245,6 +246,16 @@ private fun FuelEditor(draft: Draft, onChange: (Draft) -> Unit) {
         )
     }
     Spacer(Modifier.height(4.dp))
+    Text("Fuel", style = Type.small, color = c.inkFaded)
+    Spacer(Modifier.height(4.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FuelType.entries.forEach { type ->
+            val picked = draft.fuelType == type
+            // Tapping the one picked clears it, for when the receipt doesn't say.
+            Chip(type.label, picked, { onChange(draft.copy(fuelType = if (picked) null else type)) }, onPaper = true)
+        }
+    }
+    Spacer(Modifier.height(10.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         PaperField("Gallons", draft.gallonsText, { onChange(draft.copy(gallonsText = it)) }, Modifier.weight(1f), keyboardType = KeyboardType.Decimal, placeholder = "12.345")
         PaperField("Price per gallon", draft.priceText, { onChange(draft.copy(priceText = it)) }, Modifier.weight(1f), keyboardType = KeyboardType.Decimal, placeholder = "3.459")

@@ -1,5 +1,6 @@
 package com.moblized.spendscan.parse
 
+import com.moblized.spendscan.data.FuelType
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -156,7 +157,8 @@ object PumpReader {
                 if (match == null) add(ReceiptField.TOTAL)
             },
             rawText = clean.joinToString("\n"),
-            fuel = gallons?.let { ParsedFuel(it, price) },
+            // A pump with one grade, like a diesel pump, says which. One with a row of grade buttons doesn't.
+            fuel = gallons?.let { ParsedFuel(it, price, FuelType.read(clean)) },
         )
     }
 }

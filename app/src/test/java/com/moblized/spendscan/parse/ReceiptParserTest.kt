@@ -1,5 +1,6 @@
 package com.moblized.spendscan.parse
 
+import com.moblized.spendscan.data.FuelType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -169,11 +170,11 @@ class ReceiptParserTest {
             FUEL SALE ${'$'}42.70
             """,
         )
-        assertEquals(ParsedFuel(12345, 3459), pump.fuel)
+        assertEquals(ParsedFuel(12345, 3459, FuelType.REGULAR), pump.fuel)
 
         fun fuelOf(text: String) = parse(text).fuel
         assertEquals(ParsedFuel(22400, 3759), fuelOf("Exxon\nGALLONS: 22.400\nPRICE/GAL ${'$'}3.759\nTOTAL ${'$'}84.20"))
-        assertEquals(ParsedFuel(22400, 3759), fuelOf("Road Stop\nDIESEL 22.40G ${'$'}3.759/G\nTOTAL 84.20"))
+        assertEquals(ParsedFuel(22400, 3759, FuelType.DIESEL), fuelOf("Road Stop\nDIESEL 22.40G ${'$'}3.759/G\nTOTAL 84.20"))
         assertEquals(ParsedFuel(10000, 3599), fuelOf("Sunoco\nVolume 10.000\nPPG 3.599\nTotal 35.99"))
         assertEquals(ParsedFuel(15120, 3299), fuelOf("Pump 3\n15.120 @ 3.299\nTotal 49.88"))
         // No price printed: the gallons are still useful.

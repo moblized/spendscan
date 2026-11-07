@@ -40,12 +40,13 @@ object Csv {
     }
 
     fun fuel(rows: List<FillUpRow>): String {
-        val sb = StringBuilder("Date,Station,Gallons,Price per gallon,Total,Odometer,Full tank\r\n")
+        val sb = StringBuilder("Date,Station,Fuel type,Gallons,Price per gallon,Total,Odometer,Full tank\r\n")
         for (r in rows) {
             sb.append(
                 listOf(
                     r.date.toString(),
                     cell(r.store),
+                    r.fill.type?.label.orEmpty(),
                     r.fill.gallonsMilli?.let(FuelUnits::plainMilli).orEmpty(),
                     r.fill.priceMilli?.let(FuelUnits::plainMilli).orEmpty(),
                     money(r.totalCents),

@@ -29,6 +29,7 @@ import com.moblized.spendscan.data.Draft
 import com.moblized.spendscan.data.FillUp
 import com.moblized.spendscan.data.FillUpRow
 import com.moblized.spendscan.data.FuelSummary
+import com.moblized.spendscan.data.FuelType
 import com.moblized.spendscan.data.ItemHit
 import com.moblized.spendscan.data.PaperlessRun
 import com.moblized.spendscan.data.UploadCounts
@@ -294,13 +295,22 @@ class ScreenshotTest {
         ReviewScreen(parsedDraft.copy(readNote = "Read by your server."), cats, { File(it) }, {}, {}, {})
     }
 
-    private fun fill(id: Long, store: String, day: Int, cents: Long, gallons: Long?, price: Long?, odometer: Int?, full: Boolean = true) =
-        FillUpRow(FillUp(id, id, gallons, price, odometer, full), store, nov.atDay(day).toEpochDay(), cents)
+    private fun fill(
+        id: Long,
+        store: String,
+        day: Int,
+        cents: Long,
+        gallons: Long?,
+        price: Long?,
+        odometer: Int?,
+        full: Boolean = true,
+        type: FuelType? = FuelType.DIESEL,
+    ) = FillUpRow(FillUp(id, id, gallons, price, odometer, full, type?.name), store, nov.atDay(day).toEpochDay(), cents)
 
     private val fuelRows = listOf(
         fill(1, "Shell", 2, 8420, 22_400, 3_759, 52_010),
         fill(2, "Love's", 7, 3010, 8_000, 3_759, 52_140, full = false),
-        fill(3, "Costco Gas", 11, 7296, 21_100, 3_459, 52_500),
+        fill(3, "Costco Gas", 11, 7296, 21_100, 3_459, 52_500, type = FuelType.REGULAR),
         fill(4, "Shell", 16, 8211, 22_200, 3_699, 52_830),
         fill(5, "Pilot", 21 - 20, 9150, 24_000, 3_812, 51_700),
         FillUpRow(FillUp(6, 6, 25_000, null, 51_400), "Exxon", nov.minusMonths(1).atDay(18).toEpochDay(), 9300),
@@ -355,7 +365,7 @@ class ScreenshotTest {
     fun reviewFillUp() = shoot("25_review_fillup") {
         ReviewScreen(
             parsedDraft.copy(
-                store = "Shell", isFillUp = true, gallonsText = "22.400", priceText = "3.759", totalText = "84.20",
+                store = "Shell", isFillUp = true, fuelType = FuelType.DIESEL, gallonsText = "22.400", priceText = "3.759", totalText = "84.20",
                 categoryId = 3, items = emptyList(), lastOdometer = 52_010,
             ),
             cats, { File(it) }, {}, {}, {},
@@ -376,7 +386,7 @@ class ScreenshotTest {
     fun detailFillUp() = shoot("26_detail_fillup") {
         ReceiptDetailScreen(
             detailReceipt.copy(store = "Shell", categoryId = 3, subtotalCents = null, taxCents = null, tipCents = null, totalCents = 8420),
-            emptyList(), "Gas & auto", { File(it) }, {}, {}, {}, fillUp = FillUp(1, 1, 22_400, 3_759, 52_010),
+            emptyList(), "Gas & auto", { File(it) }, {}, {}, {}, fillUp = FillUp(1, 1, 22_400, 3_759, 52_010, fuelType = FuelType.DIESEL.name),
         )
     }
 

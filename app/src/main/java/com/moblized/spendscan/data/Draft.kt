@@ -35,9 +35,15 @@ data class Draft(
     val priceText: String = "",
     val odometerText: String = "",
     val fullTank: Boolean = true,
+    val fuelType: FuelType? = null,
     /** The odometer at the last fill-up, as a reminder of roughly what to expect. */
     val lastOdometer: Int? = null,
+    /** What went in the tank last time, for a fill-up that doesn't say. */
+    val lastFuelType: FuelType? = null,
 ) {
+    /** Marks it as a fill-up, with last time's fuel unless it already has one. */
+    fun asFillUp(): Draft = copy(isFillUp = true, fuelType = fuelType ?: lastFuelType)
+
     val gallonsMilli: Long? get() = FuelUnits.parseMilli(gallonsText)?.takeIf { it > 0 }
     val priceMilli: Long? get() = FuelUnits.parseMilli(priceText)?.takeIf { it > 0 }
 
@@ -101,6 +107,7 @@ data class Draft(
             priceMilli = priceMilli,
             odometer = FuelUnits.parseOdometer(odometerText),
             fullTank = fullTank,
+            fuelType = fuelType?.name,
         )
 
     fun toItems(): List<ReceiptItem> = items.mapNotNull { i ->
@@ -122,6 +129,7 @@ data class Draft(
             categoryId: Long?,
             readNote: String? = null,
             lastOdometer: Int? = null,
+            lastFuelType: FuelType? = null,
         ): Draft {
             if (parsed == null || (parsed.totalCents == null && parsed.store == null && parsed.items.isEmpty())) {
                 return Draft(
@@ -133,6 +141,7 @@ data class Draft(
                     readFailed = true,
                     readNote = readNote,
                     lastOdometer = lastOdometer,
+                    lastFuelType = lastFuelType,
                 )
             }
             return Draft(
@@ -153,11 +162,19 @@ data class Draft(
                 isFillUp = parsed.fuel != null,
                 gallonsText = parsed.fuel?.let { FuelUnits.plainMilli(it.gallonsMilli) }.orEmpty(),
                 priceText = parsed.fuel?.priceMilli?.let(FuelUnits::plainMilli).orEmpty(),
+                fuelType = parsed.fuel?.let { it.type ?: lastFuelType },
                 lastOdometer = lastOdometer,
+                lastFuelType = lastFuelType,
             )
         }
 
-        fun fromSaved(r: Receipt, items: List<ReceiptItem>, fill: FillUp? = null, lastOdometer: Int? = null) = Draft(
+        fun fromSaved(
+            r: Receipt,
+            items: List<ReceiptItem>,
+            fill: FillUp? = null,
+            lastOdometer: Int? = null,
+            lastFuelType: FuelType? = null,
+        ) = Draft(
             receiptId = r.id,
             store = r.store,
             date = r.date,
@@ -178,7 +195,9 @@ data class Draft(
             priceText = fill?.priceMilli?.let(FuelUnits::plainMilli).orEmpty(),
             odometerText = fill?.odometer?.toString().orEmpty(),
             fullTank = fill?.fullTank ?: true,
+            fuelType = fill?.type,
             lastOdometer = lastOdometer,
+            lastFuelType = lastFuelType,
         )
     }
 }

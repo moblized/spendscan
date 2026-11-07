@@ -41,11 +41,11 @@ class MigrationTest {
     }
 
     @Test
-    fun upgradingKeepsEverythingAndAddsFillUpsAndPaperless() = runBlocking {
+    fun upgradingKeepsEverythingAndAddsFillUpsFuelTypesAndPaperless() = runBlocking {
         versionOneDatabase("upgrade.db")
         val db = Room.databaseBuilder(ApplicationProvider.getApplicationContext<Application>(), AppDatabase::class.java, "upgrade.db")
             .addCallback(AppDatabase.StartingCategories)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
         val dao = db.dao()
@@ -66,8 +66,10 @@ class MigrationTest {
 
         // Old receipts can become fill-ups, and new ones work.
         assertEquals(0, dao.fillUpsNow().size)
-        dao.saveReceipt(receipt, dao.itemsNow(7), FillUp(receiptId = 0, gallonsMilli = 2_000))
+        dao.saveReceipt(receipt, dao.itemsNow(7), FillUp(receiptId = 0, gallonsMilli = 2_000, fuelType = FuelType.DIESEL.name))
         assertEquals(2_000L, dao.fillUpNow(7)?.gallonsMilli)
+        assertEquals(FuelType.DIESEL, dao.fillUpNow(7)?.type)
+        assertEquals(FuelType.DIESEL, dao.lastFuelType())
 
         // Receipts from before Paperless are waiting to go, and the record of what went works.
         assertEquals(1, dao.uploadCounts().first().waiting)

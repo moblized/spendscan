@@ -247,9 +247,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
             val suggested = if (pump || reading?.fuel != null) Chains.AUTO else reading?.suggestedCategory
             val categoryId = pickCategory(reading?.store, suggested)
-            val draft = Draft.fromParsed(reading, photos, today, categoryId, note, dao.lastOdometer())
+            val draft = Draft.fromParsed(reading, photos, today, categoryId, note, dao.lastOdometer(), dao.lastFuelType())
             // A pump photo is always a fill-up, and it was taken just now, so today's date is right.
-            startDraft(if (pump) draft.copy(isFillUp = true, unsure = draft.unsure - ReceiptField.DATE) else draft)
+            startDraft(if (pump) draft.asFillUp().copy(unsure = draft.unsure - ReceiptField.DATE) else draft)
             this@AppModel.reading.value = ReadingStage.NONE
         }
     }
@@ -412,14 +412,14 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 ?: cats.firstOrNull { it.name.contains("gas", ignoreCase = true) || it.name.contains("fuel", ignoreCase = true) }
                 ?: cats.firstOrNull { it.fixed }
                 ?: cats.firstOrNull()
-            startDraft(Draft.blank(LocalDate.now(), category?.id).copy(isFillUp = true, lastOdometer = dao.lastOdometer()))
+            startDraft(Draft.blank(LocalDate.now(), category?.id).copy(lastOdometer = dao.lastOdometer(), lastFuelType = dao.lastFuelType()).asFillUp())
         }
     }
 
     fun edit(id: Long) {
         viewModelScope.launch {
             val r = dao.receiptNow(id) ?: return@launch
-            startDraft(Draft.fromSaved(r, dao.itemsNow(id), dao.fillUpNow(id), dao.lastOdometer()))
+            startDraft(Draft.fromSaved(r, dao.itemsNow(id), dao.fillUpNow(id), dao.lastOdometer(), dao.lastFuelType()))
         }
     }
 

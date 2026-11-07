@@ -278,6 +278,15 @@ class ServerApiTest {
 
         val merged = ServerMerge.merge(r, null, today)
         assertEquals(com.moblized.spendscan.parse.ParsedFuel(12345, 3459), merged.fuel)
+
+        // The model's fuel type wins; without one, the phone's reading stands.
+        val diesel = ServerJson.parseReceipt("""{"total":42.70,"gallons":12.345,"price_per_gallon":3.459,"fuel_type":"Diesel"}""", today)!!
+        assertEquals(com.moblized.spendscan.data.FuelType.DIESEL, diesel.fuelType)
+        assertEquals(com.moblized.spendscan.data.FuelType.DIESEL, ServerMerge.merge(diesel, null, today).fuel?.type)
+        val phone = com.moblized.spendscan.parse.ReceiptParser.parse(listOf("SHELL", "PUMP 2 PREMIUM", "12.345 GAL @ 3.459", "TOTAL 42.70"), today)
+        assertEquals(com.moblized.spendscan.data.FuelType.PREMIUM, ServerMerge.merge(r, phone, today).fuel?.type)
+        assertEquals(com.moblized.spendscan.data.FuelType.DIESEL, ServerMerge.merge(diesel, phone, today).fuel?.type)
+        assertNull(ServerJson.parseReceipt("""{"total":5,"fuel_type":"unknown"}""", today)!!.fuelType)
         // Gallons that can't be right for the money are dropped.
         assertNull(ServerMerge.merge(r.copy(gallonsMilli = 200_000), null, today).fuel)
     }

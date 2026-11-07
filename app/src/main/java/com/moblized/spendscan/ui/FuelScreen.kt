@@ -165,7 +165,20 @@ private fun FuelTotals(s: FuelSummary) {
         LeaderRow("Fill-ups", s.count.toString(), rowGap)
         if (s.gallonsMilli > 0) LeaderRow("Gallons", FuelUnits.gallons(s.gallonsMilli), rowGap)
         s.averagePriceMilli?.let { LeaderRow("Average per gallon", FuelUnits.pricePerGallon(it), rowGap) }
+        s.byType.singleOrNull()?.let { LeaderRow("Fuel", it.type.label, rowGap) }
         LeaderRow("So far in ${s.month.year}", Money.format(s.yearCents), rowGap)
+        if (s.byType.size > 1) {
+            SlipRule()
+            Text("By fuel", style = Type.small, color = c.inkFaded)
+            s.byType.forEach { t ->
+                LeaderRow(t.type.label, Money.format(t.spentCents), Modifier.padding(top = 4.dp))
+                val detail = buildList {
+                    if (t.gallonsMilli > 0) add("${FuelUnits.gallons(t.gallonsMilli)} gal")
+                    t.averagePriceMilli?.let { add("${FuelUnits.pricePerGallon(it)} a gallon") }
+                }.joinToString(", ")
+                if (detail.isNotEmpty()) Text(detail, style = Type.small, color = c.inkFaded)
+            }
+        }
         SlipRule()
         val average = s.averageMpg
         if (average == null) {
@@ -206,14 +219,21 @@ private fun FuelYear(s: FuelSummary, onMonth: (YearMonth) -> Unit) {
     }
 }
 
-/** "22.4 gal at $3.759, 14.8 mpg, 52,310 mi", leaving out whatever wasn't recorded. */
+/** "22.4 gal of diesel at $3.759, 14.8 mpg, 52,310 mi", leaving out whatever wasn't recorded. */
 fun fillUpDetails(line: FillUpLine): String {
     val row = line.row
     val fill = row.fill
+    val type = fill.type
     return buildList {
-        fill.gallonsMilli?.let { gallons ->
+        val gallons = fill.gallonsMilli
+        if (gallons != null) {
             val price = fill.priceMilli ?: FuelUnits.paidPerGallon(row.totalCents, gallons)
-            add("${FuelUnits.gallons(gallons)} gal" + (price?.let { " at ${FuelUnits.pricePerGallon(it)}" } ?: ""))
+            add(
+                "${FuelUnits.gallons(gallons)} gal" + (type?.let { " of ${it.word}" } ?: "") +
+                    (price?.let { " at ${FuelUnits.pricePerGallon(it)}" } ?: ""),
+            )
+        } else if (type != null) {
+            add(type.label)
         }
         line.mpg?.let { add("${FuelUnits.mpg(it)} mpg") }
         fill.odometer?.let { add("${FuelUnits.odometer(it)} mi") }

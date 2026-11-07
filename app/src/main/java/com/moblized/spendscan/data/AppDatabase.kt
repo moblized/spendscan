@@ -96,6 +96,15 @@ interface SpendDao {
     )
     suspend fun lastOdometer(): Int?
 
+    @Query(
+        "SELECT f.fuelType FROM fill_ups f JOIN receipts r ON r.id = f.receiptId " +
+            "WHERE f.fuelType IS NOT NULL ORDER BY r.dateEpochDay DESC, f.id DESC LIMIT 1",
+    )
+    suspend fun lastFuelTypeName(): String?
+
+    /** What went in the tank last time, to start the next fill-up with. */
+    suspend fun lastFuelType(): FuelType? = FuelType.of(lastFuelTypeName())
+
     @Insert
     suspend fun insertFillUp(fillUp: FillUp): Long
 
@@ -197,7 +206,7 @@ interface SpendDao {
     }
 }
 
-@Database(entities = [Category::class, Receipt::class, ReceiptItem::class, FillUp::class, Upload::class], version = 3, exportSchema = false)
+@Database(entities = [Category::class, Receipt::class, ReceiptItem::class, FillUp::class, Upload::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): SpendDao
 
@@ -226,6 +235,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 4 notes what went in the tank. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `fill_ups` ADD COLUMN `fuelType` TEXT")
+            }
+        }
+
         /** Fills in the starting categories as part of creating the database, so nothing can read it half set up. */
         val StartingCategories = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
@@ -242,7 +258,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun open(context: Context): AppDatabase =
             Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "spendscan.db")
                 .addCallback(StartingCategories)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }

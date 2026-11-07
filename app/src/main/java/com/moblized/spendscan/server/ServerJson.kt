@@ -1,5 +1,6 @@
 package com.moblized.spendscan.server
 
+import com.moblized.spendscan.data.FuelType
 import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.parse.ReceiptParser
@@ -25,7 +26,7 @@ object ServerJson {
             )
             .put("required", JSONArray(listOf("name", "quantity", "amount")))
             .put("additionalProperties", false)
-        val texts = listOf("store", "date", "payment", "category")
+        val texts = listOf("store", "date", "payment", "category", "fuel_type")
         val numbers = listOf("total", "subtotal", "tax", "tip", "discount", "gallons", "price_per_gallon")
         val properties = JSONObject()
         texts.forEach { properties.put(it, nullable("string")) }
@@ -130,6 +131,7 @@ object ServerJson {
             items = items,
             gallonsMilli = thousandths(o, "gallons"),
             priceMilli = thousandths(o, "price_per_gallon"),
+            fuelType = text(o, "fuel_type")?.let { FuelType.read(listOf(it)) },
         )
         return receipt.takeIf { it.hasAnything }
     }

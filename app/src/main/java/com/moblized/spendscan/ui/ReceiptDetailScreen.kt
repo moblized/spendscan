@@ -129,6 +129,7 @@ fun ReceiptDetailScreen(
                 }
                 fillUp?.let { fill ->
                     SlipRule()
+                    fill.type?.let { LeaderRow("Fuel", it.label, Modifier.padding(vertical = 2.dp)) }
                     fill.gallonsMilli?.let { LeaderRow("Gallons", FuelUnits.gallons(it), Modifier.padding(vertical = 2.dp)) }
                     val price = fill.priceMilli ?: fill.gallonsMilli?.let { FuelUnits.paidPerGallon(receipt.totalCents, it) }
                     price?.let { LeaderRow("Per gallon", FuelUnits.pricePerGallon(it), Modifier.padding(vertical = 2.dp)) }

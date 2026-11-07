@@ -27,6 +27,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.moblized.spendscan.App
 import com.moblized.spendscan.MainActivity
+import com.moblized.spendscan.data.FuelType
 import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.paperless.FakePaperless
@@ -562,10 +563,11 @@ class AppFlowTest {
         field(2).performTextInput("10")
         field(3).performTextInput("3.50")
         field(4).performTextInput("50,000")
+        tap("Diesel")
         tap("Save receipt")
         waitFor("Saved Shell, ${money(3500)}.")
         waitFor("Fuel so far")
-        waitFor("10 gal at ${FuelUnits.pricePerGallon(3500)}, 50,000 mi")
+        waitFor("10 gal of diesel at ${FuelUnits.pricePerGallon(3500)}, 50,000 mi")
         waitFor("Add your odometer at two full tanks in a row to see your miles per gallon.")
 
         // It counts as spending once, under Gas & auto.
@@ -585,7 +587,9 @@ class AppFlowTest {
         tap("Save receipt")
         waitFor("Saved Exxon, ${money(3000)}.")
         waitFor("30.0")
-        waitFor("10 gal at ${FuelUnits.pricePerGallon(3000)}, 30.0 mpg, 50,300 mi")
+        // Diesel again without asking, since that's what went in last time.
+        waitFor("10 gal of diesel at ${FuelUnits.pricePerGallon(3000)}, 30.0 mpg, 50,300 mi")
+        assertEquals(listOf(FuelType.DIESEL, FuelType.DIESEL), runBlocking { app.dao.fillUpsNow() }.map { it.fill.type })
 
         // A fill-up opens as its receipt, and deleting that takes it off Fuel too.
         tap("Exxon")

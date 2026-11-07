@@ -70,7 +70,11 @@ data class FillUp(
     val priceMilli: Long? = null,
     val odometer: Int? = null,
     val fullTank: Boolean = true,
-)
+    /** A [FuelType] name. Kept as text so a type added later never trips up an older copy of the app. */
+    val fuelType: String? = null,
+) {
+    val type: FuelType? get() = FuelType.of(fuelType)
+}
 
 /** A fill-up with the receipt details it needs. */
 data class FillUpRow(

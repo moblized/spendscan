@@ -22,9 +22,10 @@ class FuelTest {
         full: Boolean = true,
         store: String = "Shell",
         price: Long? = null,
+        type: FuelType? = null,
     ): FillUpRow {
         val id = nextId++
-        return FillUpRow(FillUp(id, id, gallons, price, odometer, full), store, date.toEpochDay(), cents)
+        return FillUpRow(FillUp(id, id, gallons, price, odometer, full, type?.name), store, date.toEpochDay(), cents)
     }
 
     private val nov = YearMonth.of(2026, 11)
@@ -188,9 +189,10 @@ class FuelTest {
     fun aFillUpDraftSavesItsDetails() {
         val d = Draft(
             date = today, store = "Shell", categoryId = 1, totalText = "42.70", isFillUp = true,
-            gallonsText = "12.345", priceText = "3.459", odometerText = "52,310", fullTank = false,
+            gallonsText = "12.345", priceText = "3.459", odometerText = "52,310", fullTank = false, fuelType = FuelType.DIESEL,
         )
         val f = d.toFillUp()!!
+        assertEquals(FuelType.DIESEL, f.type)
         assertEquals(12345L, f.gallonsMilli)
         assertEquals(3459L, f.priceMilli)
         assertEquals(52310, f.odometer)
@@ -199,6 +201,7 @@ class FuelTest {
         // Round trip through saving.
         val back = Draft.fromSaved(d.toReceipt(1).copy(id = 5), emptyList(), f, 52000)
         assertTrue(back.isFillUp)
+        assertEquals(FuelType.DIESEL, back.fuelType)
         assertEquals("12.345", back.gallonsText)
         assertEquals("52310", back.odometerText)
         assertFalse(back.fullTank)
@@ -208,9 +211,75 @@ class FuelTest {
 
     @Test
     fun fuelCsv() {
-        val rows = listOf(fill(LocalDate.of(2026, 11, 2), 4270, gallons = 12345, odometer = 52310, price = 3459, store = "Joe's, Gas"))
+        val rows = listOf(
+            fill(LocalDate.of(2026, 11, 2), 4270, gallons = 12345, odometer = 52310, price = 3459, store = "Joe's, Gas", type = FuelType.DIESEL),
+            fill(LocalDate.of(2026, 11, 9), 3000, gallons = null),
+        )
         val csv = Csv.fuel(rows).trim().split("\r\n")
-        assertEquals("Date,Station,Gallons,Price per gallon,Total,Odometer,Full tank", csv[0])
-        assertEquals("2026-11-02,\"Joe's, Gas\",12.345,3.459,42.70,52310,yes", csv[1])
+        assertEquals("Date,Station,Fuel type,Gallons,Price per gallon,Total,Odometer,Full tank", csv[0])
+        assertEquals("2026-11-02,\"Joe's, Gas\",Diesel,12.345,3.459,42.70,52310,yes", csv[1])
+        assertEquals("2026-11-09,Shell,,,,30.00,,yes", csv[2])
+    }
+
+    @Test
+    fun readsWhichFuelWasBought() {
+        assertEquals(FuelType.DIESEL, FuelType.read(listOf("PILOT #1234", "PUMP 07 DIESEL", "22.415 GAL @ 3.899")))
+        assertEquals(FuelType.DIESEL, FuelType.read(listOf("AUTO DSL", "DEF")))
+        assertEquals(FuelType.DIESEL, FuelType.read(listOf("ULSD #2 12.000 G")))
+        assertEquals(FuelType.PREMIUM, FuelType.read(listOf("PREMIUM UNLEADED", "11.200 GAL")))
+        assertEquals(FuelType.PREMIUM, FuelType.read(listOf("PUMP 3", "UNLEADED", "PREM 93")))
+        assertEquals(FuelType.PREMIUM, FuelType.read(listOf("V-Power NiTRO+ 10.1 gal")))
+        assertEquals(FuelType.MIDGRADE, FuelType.read(listOf("UNL PLUS 8.902 G")))
+        assertEquals(FuelType.MIDGRADE, FuelType.read(listOf("MIDGRADE")))
+        assertEquals(FuelType.REGULAR, FuelType.read(listOf("REGULAR 87")))
+        assertEquals(FuelType.REGULAR, FuelType.read(listOf("PUMP 05 UNLEADED 12.345 GAL")))
+        assertEquals(FuelType.E85, FuelType.read(listOf("E-85 FLEX")))
+        // The language model's answer goes through the same reader.
+        FuelType.entries.forEach { assertEquals(it, FuelType.read(listOf(it.word))) }
+    }
+
+    @Test
+    fun aPumpWithEveryGradeOnItSaysNothing() {
+        assertNull(FuelType.read(listOf("87 UNLEADED", "89 PLUS", "93 PREMIUM", "SALE 45.20")))
+        assertNull(FuelType.read(listOf("UNLEADED 87", "PLUS 89", "SUPER 93")))
+        assertNull(FuelType.read(listOf("SUPER AMERICA", "COFFEE 1.99")))
+        assertNull(FuelType.read(listOf("TOTAL 42.70")))
+    }
+
+    @Test
+    fun aMonthSplitsByFuel() {
+        val rows = listOf(
+            fill(d(2), 9000, gallons = 25_000, type = FuelType.DIESEL),
+            fill(d(9), 8000, gallons = 20_000, type = FuelType.DIESEL),
+            fill(d(12), 4000, gallons = 10_000, type = FuelType.PREMIUM),
+            fill(d(14), 3000, gallons = 10_000),
+        )
+        val s = FuelSummary.of(rows, nov, today)
+        assertEquals(
+            listOf(
+                FuelTypeLine(FuelType.DIESEL, 17000, 45_000, 3778, 2),
+                FuelTypeLine(FuelType.PREMIUM, 4000, 10_000, 4000, 1),
+            ),
+            s.byType,
+        )
+    }
+
+    @Test
+    fun aFillUpStartsWithLastTimesFuel() {
+        val blank = Draft.blank(today, 1).copy(lastFuelType = FuelType.DIESEL)
+        assertEquals(FuelType.DIESEL, blank.asFillUp().fuelType)
+        assertEquals(FuelType.REGULAR, blank.copy(fuelType = FuelType.REGULAR).asFillUp().fuelType)
+
+        val read = com.moblized.spendscan.parse.ReceiptParser.parse(
+            listOf("SHELL", "PUMP 4 PREMIUM", "10.000 GAL @ 4.000", "TOTAL 40.00"),
+            today,
+        )
+        assertEquals(FuelType.PREMIUM, read.fuel?.type)
+        assertEquals(FuelType.PREMIUM, Draft.fromParsed(read, emptyList(), today, 1, lastFuelType = FuelType.DIESEL).fuelType)
+        val unnamed = read.copy(fuel = read.fuel!!.copy(type = null))
+        assertEquals(FuelType.DIESEL, Draft.fromParsed(unnamed, emptyList(), today, 1, lastFuelType = FuelType.DIESEL).fuelType)
+        // A receipt that isn't for fuel gets none.
+        val groceries = com.moblized.spendscan.parse.ReceiptParser.parse(listOf("KROGER", "MILK 3.49", "TOTAL 3.49"), today)
+        assertNull(Draft.fromParsed(groceries, emptyList(), today, 1, lastFuelType = FuelType.DIESEL).fuelType)
     }
 }
