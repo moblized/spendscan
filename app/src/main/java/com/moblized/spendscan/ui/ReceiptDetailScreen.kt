@@ -45,6 +45,7 @@ import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.data.Receipt
 import com.moblized.spendscan.data.ReceiptItem
+import com.moblized.spendscan.data.Upload
 import com.moblized.spendscan.ui.theme.LocalSlip
 import com.moblized.spendscan.ui.theme.Type
 import java.io.File
@@ -53,6 +54,17 @@ fun quantityPrefix(q: Double): String = when {
     q == 1.0 -> ""
     q % 1.0 == 0.0 -> "${q.toLong()} x "
     else -> "$q x "
+}
+
+/** Where a receipt's copy in Paperless stands. [kept] means deleting it here leaves it there. */
+data class PaperlessNote(val text: String, val kept: Boolean)
+
+fun paperlessNote(on: Boolean, hasPhotos: Boolean, upload: Upload?): PaperlessNote? = when {
+    upload?.problem != null -> PaperlessNote("Not in Paperless. ${upload.problem}", kept = false)
+    upload?.documentId != null -> PaperlessNote("In Paperless.", kept = true)
+    upload != null -> PaperlessNote("Sent to Paperless, which is still reading it.", kept = true)
+    on && hasPhotos -> PaperlessNote("Waiting to go to Paperless.", kept = false)
+    else -> null
 }
 
 /** A saved receipt, reprinted cleanly, with the photo behind it. */
@@ -67,6 +79,7 @@ fun ReceiptDetailScreen(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     fillUp: FillUp? = null,
+    paperless: PaperlessNote? = null,
 ) {
     val c = LocalSlip.current
     var confirmDelete by remember { mutableStateOf(false) }
@@ -132,6 +145,10 @@ fun ReceiptDetailScreen(
                     Spacer(Modifier.height(6.dp))
                     PhotoStrip(receipt.photoList.map(photoFile)) { viewing = it }
                 }
+                paperless?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it.text, style = Type.small, color = c.inkFaded)
+                }
             }
         }
     }
@@ -142,7 +159,12 @@ fun ReceiptDetailScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete this receipt?") },
-            text = { Text("${receipt.store}, ${Money.format(receipt.totalCents)} comes out of your totals and its photo is deleted.") },
+            text = {
+                Text(
+                    "${receipt.store}, ${Money.format(receipt.totalCents)} comes out of your totals and its photo is deleted" +
+                        if (paperless?.kept == true) " from this phone. Paperless keeps its copy." else ".",
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false

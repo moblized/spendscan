@@ -4,6 +4,8 @@ import android.app.Application
 import com.moblized.spendscan.data.AppDatabase
 import com.moblized.spendscan.data.Prefs
 import com.moblized.spendscan.data.SpendDao
+import com.moblized.spendscan.paperless.PaperlessApi
+import com.moblized.spendscan.paperless.PaperlessSync
 import com.moblized.spendscan.scan.PhotoStore
 import com.moblized.spendscan.server.ServerApi
 import com.moblized.spendscan.update.Updater
@@ -15,4 +17,6 @@ class App : Application() {
     val photos: PhotoStore by lazy { PhotoStore(this) }
     val updater: Updater by lazy { Updater(this) }
     val server: ServerApi by lazy { ServerApi() }
+    val paperlessApi: PaperlessApi by lazy { PaperlessApi() }
+    val paperless: PaperlessSync by lazy { PaperlessSync(dao, photos::file, { prefs.paperless.value }, paperlessApi) }
 }

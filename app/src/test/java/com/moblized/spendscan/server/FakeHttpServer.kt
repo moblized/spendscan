@@ -9,9 +9,10 @@ import java.net.ServerSocket
 import java.net.Socket
 import kotlin.concurrent.thread
 
-/** A small real HTTP server on this machine, standing in for Ollama or LM Studio in tests. */
+/** A small real HTTP server on this machine, standing in for Ollama, LM Studio or Paperless in tests. */
 class FakeHttpServer(private val handle: (Request) -> Pair<Int, String>) : Closeable {
-    data class Request(val method: String, val path: String, val headers: Map<String, String>, val body: String) {
+    class Request(val method: String, val path: String, val headers: Map<String, String>, val raw: ByteArray) {
+        val body: String get() = raw.decodeToString()
         fun header(name: String): String? = headers[name.lowercase()]
     }
 
@@ -51,7 +52,7 @@ class FakeHttpServer(private val handle: (Request) -> Pair<Int, String>) : Close
             headers[l.substringBefore(':').trim().lowercase()] = l.substringAfter(':').trim()
         }
         val length = headers["content-length"]?.toIntOrNull() ?: 0
-        val body = input.readNBytes(length).decodeToString()
+        val body = input.readNBytes(length)
         val (code, answer) = handle(Request(first[0], first.getOrElse(1) { "/" }, headers, body))
         val bytes = answer.toByteArray()
         val head = "HTTP/1.1 $code Status\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"

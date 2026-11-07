@@ -30,6 +30,11 @@ import com.moblized.spendscan.data.FillUp
 import com.moblized.spendscan.data.FillUpRow
 import com.moblized.spendscan.data.FuelSummary
 import com.moblized.spendscan.data.ItemHit
+import com.moblized.spendscan.data.PaperlessRun
+import com.moblized.spendscan.data.UploadCounts
+import com.moblized.spendscan.paperless.PaperlessConfig
+import com.moblized.spendscan.paperless.PaperlessSync
+import com.moblized.spendscan.paperless.SyncProblem
 import com.moblized.spendscan.data.ItemStats
 import com.moblized.spendscan.data.MonthSummary
 import com.moblized.spendscan.data.Receipt
@@ -210,7 +215,7 @@ class ScreenshotTest {
 
     @Test
     fun detailDark() = shoot("10_detail_dark", dark = true) {
-        ReceiptDetailScreen(detailReceipt, detailItems, "Dining out", { File(it) }, {}, {}, {})
+        ReceiptDetailScreen(detailReceipt, detailItems, "Dining out", { File(it) }, {}, {}, {}, paperless = PaperlessNote("In Paperless.", kept = true))
     }
 
     @Test
@@ -258,6 +263,29 @@ class ScreenshotTest {
             ThemeChoice.SYSTEM, {}, 14, {}, "1.0.1", null, {},
             ServerConfig("http://192.168.1.20:11434", model = "qwen3-vl:8b"), {},
             listOf("gemma3:12b", "qwen3-vl:8b", "llama3.2:latest"), "Connected. Pick a model that can read images.", {},
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h1500dp-xxhdpi")
+    fun settingsWithPaperless() = shoot("28_settings_paperless") {
+        SettingsScreen(
+            ThemeChoice.SYSTEM, {}, 51, {}, "1.0.1", null, {},
+            ServerConfig(), {}, emptyList(), null, {},
+            paperless = PaperlessView(
+                PaperlessConfig("https://paperless.example.com", "0123456789abcdef", on = true),
+                UploadCounts(waiting = 3, sent = 46, refused = 1, noPhotos = 2, lastProblem = PaperlessSync.MISSING_PHOTOS),
+                PaperlessRun(SyncProblem.UNREACHABLE, 1),
+            ),
+        )
+    }
+
+    @Test
+    fun settingsPaperlessNotConnected() = shoot("29_settings_paperless_off", dark = true) {
+        SettingsScreen(
+            ThemeChoice.SYSTEM, {}, 51, {}, "1.0.1", null, {},
+            ServerConfig(), {}, emptyList(), null, {},
+            paperless = PaperlessView(PaperlessConfig("http://paperless.example.com", "x"), status = "Paperless turned down that token. Copy it again from My Profile in Paperless."),
         )
     }
 

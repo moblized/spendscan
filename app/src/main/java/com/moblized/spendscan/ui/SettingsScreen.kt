@@ -29,10 +29,31 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.moblized.spendscan.R
+import com.moblized.spendscan.data.PaperlessRun
 import com.moblized.spendscan.data.ThemeChoice
+import com.moblized.spendscan.data.UploadCounts
+import com.moblized.spendscan.paperless.PaperlessConfig
+import com.moblized.spendscan.paperless.SyncProblem
 import com.moblized.spendscan.server.ServerConfig
 import com.moblized.spendscan.ui.theme.LocalSlip
 import com.moblized.spendscan.ui.theme.Type
+
+/** Where sending to Paperless-ngx stands, for the settings page. */
+data class PaperlessView(
+    val config: PaperlessConfig = PaperlessConfig(),
+    val counts: UploadCounts? = null,
+    val lastRun: PaperlessRun? = null,
+    /** What the last connection check found. */
+    val status: String? = null,
+)
+
+class PaperlessActions(
+    val change: (PaperlessConfig) -> Unit = {},
+    val connect: () -> Unit = {},
+    val stop: () -> Unit = {},
+    val sendNow: () -> Unit = {},
+    val retry: () -> Unit = {},
+)
 
 @Composable
 fun SettingsScreen(
@@ -51,6 +72,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
     serverUrlRevision: Int = 0,
+    paperless: PaperlessView = PaperlessView(),
+    paperlessActions: PaperlessActions = PaperlessActions(),
 ) {
     val c = LocalSlip.current
     Column(modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -78,13 +101,21 @@ fun SettingsScreen(
 
                 SlipRule()
 
+                PaperlessSection(paperless, paperlessActions)
+
+                SlipRule()
+
                 Text("Your receipts", style = Type.strong, color = c.ink)
                 Spacer(Modifier.height(4.dp))
+                val goesOnline = listOfNotNull(
+                    "Photos of new scans also go to your language model server.".takeIf { server.isSet },
+                    "Receipts with photos are copied to Paperless.".takeIf { paperless.config.isOn },
+                )
                 Text(
-                    if (server.isSet) {
-                        "Receipts and photos are kept on this phone. Photos of new scans also go to your server. The app only goes online for that and to check for updates."
-                    } else {
+                    if (goesOnline.isEmpty()) {
                         "Receipts and photos are kept on this phone. The app only goes online to check for updates."
+                    } else {
+                        "Receipts and photos are kept on this phone. ${goesOnline.joinToString(" ")} The app only goes online for that and to check for updates."
                     },
                     style = Type.body,
                     color = c.inkFaded,
@@ -191,4 +222,123 @@ private fun ServerSection(
     }
     Spacer(Modifier.height(10.dp))
     PaperField("Model", server.model, { onServer(server.copy(model = it.trim())) }, placeholder = "qwen3-vl:8b")
+}
+
+/** Copies of your receipts in your own Paperless-ngx. */
+@Composable
+private fun PaperlessSection(view: PaperlessView, actions: PaperlessActions) {
+    val c = LocalSlip.current
+    val config = view.config
+    var url by rememberSaveable { mutableStateOf(config.url) }
+    var token by rememberSaveable { mutableStateOf(config.token) }
+
+    Text("Paperless-ngx", style = Type.strong, color = c.ink)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        "Sends a PDF of each receipt to your Paperless-ngx, with the store, date, total and category filled in. " +
+            "Receipts you delete here stay in Paperless.",
+        style = Type.body,
+        color = c.inkFaded,
+    )
+    Spacer(Modifier.height(10.dp))
+    PaperField(
+        "Paperless address",
+        url,
+        {
+            url = it
+            actions.change(config.copy(url = it))
+        },
+        keyboardType = KeyboardType.Uri,
+        placeholder = "https://paperless.example.com",
+    )
+    if (config.sendsInTheClear) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "This address isn't encrypted, so your receipts could be read on the way there. Use https:// outside your home network.",
+            style = Type.small,
+            color = c.onHighlighter,
+            modifier = Modifier.background(c.highlighter, RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+    Spacer(Modifier.height(10.dp))
+    PaperField(
+        "API token",
+        token,
+        {
+            token = it
+            actions.change(config.copy(token = it))
+        },
+        keyboardType = KeyboardType.Password,
+        visualTransformation = PasswordVisualTransformation(),
+    )
+    Spacer(Modifier.height(4.dp))
+    Text("In Paperless, open the menu under your name, choose My Profile, and copy the API Auth Token.", style = Type.small, color = c.inkFaded)
+    Spacer(Modifier.height(10.dp))
+
+    if (!config.isOn) {
+        YellowButton("Connect and send receipts", actions.connect, Modifier.fillMaxWidth(), enabled = config.canConnect)
+        view.status?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = Type.small, color = c.ink)
+        }
+        return
+    }
+
+    view.status?.let {
+        Text(it, style = Type.small, color = c.ink)
+        Spacer(Modifier.height(6.dp))
+    }
+    val counts = view.counts
+    if (counts != null) {
+        Text(paperlessSummary(counts), style = Type.body, color = c.ink)
+        val problem = view.lastRun?.problem
+        if (problem != null && (counts.waiting > 0 || problem == SyncProblem.REFUSED)) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                paperlessProblem(problem),
+                style = Type.small,
+                color = c.onHighlighter,
+                modifier = Modifier.background(c.highlighter, RoundedCornerShape(3.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+        if (counts.refused > 0) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "${count(counts.refused, "receipt")} couldn't go." + (counts.lastProblem?.let { " $it" } ?: ""),
+                style = Type.small,
+                color = c.stamp,
+            )
+        }
+        if (counts.noPhotos > 0) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${count(counts.noPhotos, "receipt")} typed in by hand ${if (counts.noPhotos == 1) "has" else "have"} no photo, so only this phone has them.",
+                style = Type.small,
+                color = c.inkFaded,
+            )
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PaperButton("Send now", actions.sendNow, Modifier.weight(1f))
+        PaperButton("Stop sending", actions.stop, Modifier.weight(1f))
+    }
+    if (counts != null && counts.refused > 0) {
+        Spacer(Modifier.height(8.dp))
+        PaperButton("Try ${if (counts.refused == 1) "it" else "them"} again", actions.retry, Modifier.fillMaxWidth())
+    }
+}
+
+fun paperlessSummary(counts: UploadCounts): String = when {
+    counts.sent == 0 && counts.waiting == 0 -> "Nothing to send yet. Receipts with photos go as you save them."
+    counts.waiting == 0 -> if (counts.sent == 1) "Your receipt with a photo is in Paperless." else "All ${counts.sent} receipts with photos are in Paperless."
+    counts.sent == 0 -> "${count(counts.waiting, "receipt")} waiting to go."
+    else -> "${count(counts.sent, "receipt")} in Paperless, ${counts.waiting} waiting to go."
+}
+
+fun paperlessProblem(problem: SyncProblem): String = when (problem) {
+    SyncProblem.UNREACHABLE -> "Couldn't reach Paperless last time. SpendScan tries again whenever the phone is online."
+    SyncProblem.REFUSED -> "Paperless turned down the token. Copy it again from My Profile in Paperless, then tap Send now."
+    SyncProblem.NOT_PAPERLESS -> "Something answered at that address, but not Paperless. If a login page sits in front of Paperless, it has to let /api through."
+    SyncProblem.SERVER_ERROR -> "Paperless had trouble on its end. SpendScan will try again in a while."
 }

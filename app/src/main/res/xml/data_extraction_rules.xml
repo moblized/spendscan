@@ -5,5 +5,7 @@
         <exclude domain="file" path="receipts/" />
         <!-- Your server's address and key -->
         <exclude domain="sharedpref" path="server.xml" />
+        <!-- Your Paperless address and token -->
+        <exclude domain="sharedpref" path="paperless.xml" />
     </cloud-backup>
 </data-extraction-rules>

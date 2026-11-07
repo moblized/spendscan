@@ -5,6 +5,7 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Delete
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -136,6 +137,7 @@ interface SpendDao {
         } else {
             updateReceipt(receipt)
             deleteItems(receipt.id)
+            markUploadChanged(receipt.id)
             receipt.id
         }
         insertItems(items.mapIndexed { i, item -> item.copy(id = 0, receiptId = id, position = i) })
@@ -144,6 +146,50 @@ interface SpendDao {
         return id
     }
 
+    // Paperless
+    @Query(
+        "SELECT * FROM receipts r WHERE r.photos != '' AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.receiptId = r.id) " +
+            "ORDER BY r.id ASC LIMIT 100",
+    )
+    suspend fun receiptsToSend(): List<Receipt>
+
+    @Query("SELECT * FROM uploads WHERE problem IS NULL AND (documentId IS NULL OR (documentId > 0 AND changes > 0)) ORDER BY receiptId ASC")
+    suspend fun uploadsToFinish(): List<Upload>
+
+    @Query("SELECT * FROM uploads WHERE receiptId = :receiptId")
+    fun upload(receiptId: Long): Flow<Upload?>
+
+    @Query("SELECT * FROM uploads WHERE receiptId = :receiptId")
+    suspend fun uploadNow(receiptId: Long): Upload?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putUpload(upload: Upload)
+
+    @Query("UPDATE uploads SET documentId = :documentId WHERE receiptId = :receiptId")
+    suspend fun setUploadDocument(receiptId: Long, documentId: Long)
+
+    @Query("UPDATE uploads SET problem = :problem WHERE receiptId = :receiptId")
+    suspend fun setUploadProblem(receiptId: Long, problem: String)
+
+    /** Paperless has heard about [seen] edits. Any made while it was being told stay to go next time. */
+    @Query("UPDATE uploads SET changes = MAX(0, changes - :seen), tagId = :tagId WHERE receiptId = :receiptId")
+    suspend fun uploadUpdated(receiptId: Long, tagId: Long?, seen: Int)
+
+    @Query("UPDATE uploads SET changes = changes + 1 WHERE receiptId = :receiptId")
+    suspend fun markUploadChanged(receiptId: Long)
+
+    @Query("DELETE FROM uploads WHERE problem IS NOT NULL")
+    suspend fun clearUploadProblems()
+
+    @Query(
+        "SELECT (SELECT COUNT(*) FROM receipts r WHERE r.photos != '' AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.receiptId = r.id)) AS waiting, " +
+            "(SELECT COUNT(*) FROM uploads WHERE problem IS NULL) AS sent, " +
+            "(SELECT COUNT(*) FROM uploads WHERE problem IS NOT NULL) AS refused, " +
+            "(SELECT COUNT(*) FROM receipts WHERE photos = '') AS noPhotos, " +
+            "(SELECT problem FROM uploads WHERE problem IS NOT NULL ORDER BY sentAt DESC LIMIT 1) AS lastProblem",
+    )
+    fun uploadCounts(): Flow<UploadCounts>
+
     @Transaction
     suspend fun removeCategory(category: Category, fallbackId: Long) {
         moveReceipts(category.id, fallbackId)
@@ -151,7 +197,7 @@ interface SpendDao {
     }
 }
 
-@Database(entities = [Category::class, Receipt::class, ReceiptItem::class, FillUp::class], version = 2, exportSchema = false)
+@Database(entities = [Category::class, Receipt::class, ReceiptItem::class, FillUp::class, Upload::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): SpendDao
 
@@ -166,6 +212,17 @@ abstract class AppDatabase : RoomDatabase() {
                         "ON UPDATE NO ACTION ON DELETE CASCADE )",
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_fill_ups_receiptId` ON `fill_ups` (`receiptId`)")
+            }
+        }
+
+        /** Version 3 keeps track of what's gone to Paperless-ngx. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `uploads` (`receiptId` INTEGER NOT NULL, `taskId` TEXT, `documentId` INTEGER, " +
+                        "`tagId` INTEGER, `changes` INTEGER NOT NULL, `problem` TEXT, `sentAt` INTEGER NOT NULL, PRIMARY KEY(`receiptId`), " +
+                        "FOREIGN KEY(`receiptId`) REFERENCES `receipts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                )
             }
         }
 
@@ -185,7 +242,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun open(context: Context): AppDatabase =
             Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "spendscan.db")
                 .addCallback(StartingCategories)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }

@@ -41,11 +41,11 @@ class MigrationTest {
     }
 
     @Test
-    fun upgradingKeepsEverythingAndAddsFillUps() = runBlocking {
+    fun upgradingKeepsEverythingAndAddsFillUpsAndPaperless() = runBlocking {
         versionOneDatabase("upgrade.db")
         val db = Room.databaseBuilder(ApplicationProvider.getApplicationContext<Application>(), AppDatabase::class.java, "upgrade.db")
             .addCallback(AppDatabase.StartingCategories)
-            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
             .allowMainThreadQueries()
             .build()
         val dao = db.dao()
@@ -68,8 +68,14 @@ class MigrationTest {
         assertEquals(0, dao.fillUpsNow().size)
         dao.saveReceipt(receipt, dao.itemsNow(7), FillUp(receiptId = 0, gallonsMilli = 2_000))
         assertEquals(2_000L, dao.fillUpNow(7)?.gallonsMilli)
+
+        // Receipts from before Paperless are waiting to go, and the record of what went works.
+        assertEquals(1, dao.uploadCounts().first().waiting)
+        dao.putUpload(Upload(receiptId = 7, taskId = "t", documentId = 42))
+        assertEquals(1, dao.uploadCounts().first().sent)
         dao.deleteReceipt(7)
         assertEquals(0, dao.fillUpsNow().size)
+        assertEquals(null, dao.uploadNow(7))
         db.close()
     }
 }

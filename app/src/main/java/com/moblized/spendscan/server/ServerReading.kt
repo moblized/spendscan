@@ -42,19 +42,20 @@ data class ServerConfig(val url: String = "", val key: String = "", val model: S
             val base = apiBase
             if (!base.startsWith("http://")) return false
             val host = base.removePrefix("http://").substringBefore('/').substringBeforeLast(':').lowercase()
-            return !isPrivateHost(host)
+            return !isHomeNetworkHost(host)
         }
+}
 
-    private fun isPrivateHost(host: String): Boolean {
-        if (host == "localhost" || !host.contains('.') || host.endsWith(".local") || host.endsWith(".lan") ||
-            host.endsWith(".home.arpa") || host.endsWith(".ts.net")
-        ) return true
-        val parts = host.split('.').map { it.toIntOrNull() }
-        if (parts.size != 4 || parts.any { it == null }) return false
-        val a = parts[0]!!
-        val b = parts[1]!!
-        return a == 10 || a == 127 || (a == 192 && b == 168) || (a == 172 && b in 16..31) || (a == 100 && b in 64..127)
-    }
+/** True for addresses that only lead somewhere on a home network (or a Tailscale one), where plain http stays private. */
+fun isHomeNetworkHost(host: String): Boolean {
+    if (host == "localhost" || !host.contains('.') || host.endsWith(".local") || host.endsWith(".lan") ||
+        host.endsWith(".home.arpa") || host.endsWith(".ts.net")
+    ) return true
+    val parts = host.split('.').map { it.toIntOrNull() }
+    if (parts.size != 4 || parts.any { it == null }) return false
+    val a = parts[0]!!
+    val b = parts[1]!!
+    return a == 10 || a == 127 || (a == 192 && b == 168) || (a == 172 && b in 16..31) || (a == 100 && b in 64..127)
 }
 
 object ServerModels {

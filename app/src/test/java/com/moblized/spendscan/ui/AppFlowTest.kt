@@ -18,6 +18,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToString
@@ -28,6 +29,7 @@ import com.moblized.spendscan.App
 import com.moblized.spendscan.MainActivity
 import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
+import com.moblized.spendscan.paperless.FakePaperless
 import com.moblized.spendscan.server.FakeHttpServer
 import com.moblized.spendscan.server.ServerConfig
 import org.json.JSONArray
@@ -416,7 +418,7 @@ class AppFlowTest {
             tap("llama3.2:latest")
             compose.waitUntil(timeoutMillis = 5_000) { app.prefs.server.value.model == "llama3.2:latest" }
             assertEquals(http.address, app.prefs.server.value.url)
-            waitFor("Receipts and photos are kept on this phone. Photos of new scans also go to your server. The app only goes online for that and to check for updates.")
+            waitFor("Receipts and photos are kept on this phone. Photos of new scans also go to your language model server. The app only goes online for that and to check for updates.")
         } finally {
             http.close()
         }
@@ -468,6 +470,39 @@ class AppFlowTest {
         tap("Find models")
         compose.waitUntil(timeoutMillis = 30_000) {
             compose.onAllNodesWithText("Couldn't reach that address", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
+    fun paperlessIsSetUpInSettings() {
+        val paperless = FakePaperless()
+        try {
+            addByHand("Kroger", "6.93")
+            tapIcon("Settings")
+            waitFor("Paperless-ngx")
+            compose.onNode(hasSetTextAction() and hasText("https://paperless.example.com")).performScrollTo().performTextInput(paperless.address)
+            // Address, key and model for the language model server come first.
+            val token = field(4)
+            token.performScrollTo().performTextInput("wrong")
+            compose.onNodeWithText("Connect and send receipts").performScrollTo().performClick()
+            waitFor("Paperless turned down that token. Copy it again from My Profile in Paperless.")
+            assertEquals(false, app.prefs.paperless.value.on)
+
+            token.performTextClearance()
+            token.performTextInput("secret")
+            compose.onNodeWithText("Connect and send receipts").performScrollTo().performClick()
+            waitFor("Connected. Sending your receipts now.")
+            assertEquals(true, app.prefs.paperless.value.isOn)
+            assertEquals(paperless.address, app.prefs.paperless.value.url)
+            waitFor("1 receipt typed in by hand has no photo, so only this phone has them.")
+            waitFor("Nothing to send yet. Receipts with photos go as you save them.")
+            waitFor("Receipts with photos are copied to Paperless.", substring = true)
+
+            compose.onNodeWithText("Stop sending").performScrollTo().performClick()
+            waitFor("Stopped. Receipts already in Paperless stay there.")
+            assertEquals(false, app.prefs.paperless.value.on)
+        } finally {
+            paperless.close()
         }
     }
 

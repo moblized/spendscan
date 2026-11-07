@@ -24,9 +24,15 @@ import com.moblized.spendscan.data.Receipt
 import com.moblized.spendscan.data.ReceiptFilter
 import com.moblized.spendscan.data.ReceiptItem
 import com.moblized.spendscan.data.ReceiptRow
+import com.moblized.spendscan.data.PaperlessRun
 import com.moblized.spendscan.data.ThemeChoice
+import com.moblized.spendscan.data.Upload
+import com.moblized.spendscan.data.UploadCounts
 import com.moblized.spendscan.data.budgetNote
 import com.moblized.spendscan.export.Csv
+import com.moblized.spendscan.paperless.PaperlessCheck
+import com.moblized.spendscan.paperless.PaperlessConfig
+import com.moblized.spendscan.paperless.PaperlessWork
 import com.moblized.spendscan.parse.Chains
 import com.moblized.spendscan.parse.PumpReader
 import com.moblized.spendscan.parse.ReceiptField
@@ -310,6 +316,64 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Paperless-ngx
+    val paperless: StateFlow<PaperlessConfig> = prefs.paperless
+    val paperlessCounts: StateFlow<UploadCounts?> = dao.uploadCounts().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val paperlessRun: StateFlow<PaperlessRun?> = prefs.paperlessRun
+    val paperlessStatus = MutableStateFlow<String?>(null)
+
+    fun upload(receiptId: Long): Flow<Upload?> = dao.upload(receiptId)
+
+    fun setPaperless(config: PaperlessConfig) {
+        prefs.setPaperless(config)
+    }
+
+    /** Checks the address and token, and starts sending if they work. */
+    fun connectPaperless() {
+        val config = prefs.paperless.value
+        if (!config.canConnect) {
+            paperlessStatus.value = "Add the address and the API token first."
+            return
+        }
+        paperlessStatus.value = "Checking..."
+        viewModelScope.launch {
+            val check = withContext(Dispatchers.IO) { app.paperlessApi.check(config) }
+            paperlessStatus.value = when (check) {
+                is PaperlessCheck.Connected -> {
+                    prefs.setPaperless(prefs.paperless.value.copy(on = true))
+                    PaperlessWork.start(app, now = true)
+                    "Connected. Sending your receipts now."
+                }
+                PaperlessCheck.Refused -> "Paperless turned down that token. Copy it again from My Profile in Paperless."
+                PaperlessCheck.NotPaperless -> "Something answered at that address, but not Paperless. Check the address. " +
+                    "If a login page sits in front of Paperless, it has to let /api through."
+                PaperlessCheck.Unreachable -> "Couldn't reach that address. Check it, and that this phone can get to your server."
+            }
+        }
+    }
+
+    fun stopPaperless() {
+        prefs.setPaperless(prefs.paperless.value.copy(on = false))
+        paperlessStatus.value = "Stopped. Receipts already in Paperless stay there."
+    }
+
+    fun sendToPaperlessNow() {
+        paperlessStatus.value = null
+        PaperlessWork.start(app, now = true)
+    }
+
+    /** Clears what Paperless turned down so it all goes again. */
+    fun retryPaperless() {
+        viewModelScope.launch {
+            dao.clearUploadProblems()
+            PaperlessWork.start(app, now = true)
+        }
+    }
+
+    private fun sendToPaperless() {
+        if (prefs.paperless.value.isOn) PaperlessWork.start(app)
+    }
+
     /** The category this store went under last time, or failing that, the one it usually belongs in. */
     private suspend fun pickCategory(store: String?, suggested: String?): Long? {
         val cats = dao.categoriesNow()
@@ -422,6 +486,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             val (from, to) = range(receiptMonth)
             val before = dao.categorySpent(receipt.categoryId, from, to)
             dao.saveReceipt(receipt, d.toItems(), d.toFillUp())
+            sendToPaperless()
             val after = dao.categorySpent(receipt.categoryId, from, to)
             val category = dao.categoriesNow().firstOrNull { it.id == receipt.categoryId }
             val note = category?.let { budgetNote(it.name, it.budgetCents, before, after) }
@@ -510,6 +575,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     init {
         checkForUpdateIfDue()
+        // Picks up anything that didn't go last time.
+        sendToPaperless()
     }
 
     private fun checkForUpdateIfDue() {

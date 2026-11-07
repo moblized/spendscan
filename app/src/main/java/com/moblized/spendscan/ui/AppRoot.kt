@@ -209,6 +209,19 @@ private fun SettingsRoute(model: AppModel) {
     val serverModels by model.serverModels.collectAsStateWithLifecycle()
     val serverStatus by model.serverStatus.collectAsStateWithLifecycle()
     val urlRevision by model.serverUrlRevision.collectAsStateWithLifecycle()
+    val paperless by model.paperless.collectAsStateWithLifecycle()
+    val paperlessCounts by model.paperlessCounts.collectAsStateWithLifecycle()
+    val paperlessRun by model.paperlessRun.collectAsStateWithLifecycle()
+    val paperlessStatus by model.paperlessStatus.collectAsStateWithLifecycle()
+    val paperlessActions = remember(model) {
+        PaperlessActions(
+            change = model::setPaperless,
+            connect = model::connectPaperless,
+            stop = model::stopPaperless,
+            sendNow = model::sendToPaperlessNow,
+            retry = model::retryPaperless,
+        )
+    }
     SettingsScreen(
         theme = theme,
         onTheme = model::setTheme,
@@ -224,6 +237,8 @@ private fun SettingsRoute(model: AppModel) {
         onFindModels = model::findModels,
         onBack = { model.back() },
         serverUrlRevision = urlRevision,
+        paperless = PaperlessView(paperless, paperlessCounts, paperlessRun, paperlessStatus),
+        paperlessActions = paperlessActions,
     )
 }
 
@@ -236,6 +251,9 @@ private fun DetailRoute(model: AppModel, id: Long) {
     val fillFlow = remember(id) { model.fillUp(id) }
     val fill by fillFlow.collectAsState(initial = null)
     val categories by model.categories.collectAsStateWithLifecycle()
+    val uploadFlow = remember(id) { model.upload(id) }
+    val upload by uploadFlow.collectAsState(initial = null)
+    val paperless by model.paperless.collectAsStateWithLifecycle()
     val r = receipt ?: return
     ReceiptDetailScreen(
         receipt = r,
@@ -246,6 +264,7 @@ private fun DetailRoute(model: AppModel, id: Long) {
         onEdit = { model.edit(id) },
         onDelete = { model.deleteReceipt(id) },
         fillUp = fill,
+        paperless = paperlessNote(paperless.isOn, r.photoList.isNotEmpty(), upload),
     )
 }
 

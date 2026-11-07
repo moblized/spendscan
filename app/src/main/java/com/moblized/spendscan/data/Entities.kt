@@ -82,6 +82,38 @@ data class FillUpRow(
     val date: LocalDate get() = LocalDate.ofEpochDay(dateEpochDay)
 }
 
+/**
+ * A receipt's copy in Paperless-ngx. No row means it hasn't gone yet. Deleting the receipt deletes this row but leaves
+ * the document in Paperless, which keeps everything ever sent.
+ */
+@Entity(
+    tableName = "uploads",
+    foreignKeys = [ForeignKey(entity = Receipt::class, parentColumns = ["id"], childColumns = ["receiptId"], onDelete = ForeignKey.CASCADE)],
+)
+data class Upload(
+    @PrimaryKey val receiptId: Long,
+    /** Paperless's job for taking in the file, which says which document it made once it's done. */
+    val taskId: String? = null,
+    /** 0 when Paperless made the document but never said which. */
+    val documentId: Long? = null,
+    /** The category tag this app put on the document, so a change of category can swap it. */
+    val tagId: Long? = null,
+    /** Edits Paperless hasn't heard about yet. Starts at 1, since the total can only go on once the document exists. */
+    val changes: Int = 1,
+    /** Why Paperless couldn't take it. Set means it won't be tried again until you ask. */
+    val problem: String? = null,
+    val sentAt: Long = 0,
+)
+
+/** How sending to Paperless is going, for the settings page. */
+data class UploadCounts(
+    val waiting: Int,
+    val sent: Int,
+    val refused: Int,
+    val noPhotos: Int,
+    val lastProblem: String?,
+)
+
 data class ReceiptRow(
     @Embedded val receipt: Receipt,
     val itemCount: Int,

@@ -104,11 +104,17 @@ dependencies {
     // Receipt photos
     implementation("io.coil-kt:coil-compose:2.7.0")
 
+    // Sending receipts to Paperless-ngx: the HTTP client (for its file uploads and PATCH), and background work that
+    // waits for a connection and carries on after the app is closed.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.work:work-runtime-ktx:2.11.0")
+
     testImplementation("junit:junit:4.13.2")
     // Android's built-in JSON classes are stubs in plain unit tests; this is the real thing.
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.work:work-testing:2.11.0")
     testImplementation("io.github.takahirom.roborazzi:roborazzi:1.29.0")
     testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.29.0")
     testImplementation(composeBom)
