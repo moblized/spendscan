@@ -104,7 +104,8 @@ fun ReviewScreen(
                 if (draft.readFailed) {
                     Text(
                         if (draft.isFillUp) "No numbers could be read from this photo. Fill them in from the photo, or go back and take it again closer up, without glare."
-                        else "No text could be read from this photo. Fill in the store and total yourself, or go back and scan it again in better light.",
+                        else "No text could be read from this photo. Fill in the store and total yourself, or go back and scan it again in better light. " +
+                            "If it's a gas pump, pick Gas & auto below to add the gallons.",
                         style = Type.body,
                         color = c.onHighlighter,
                         modifier = Modifier.background(c.highlighter, RoundedCornerShape(3.dp)).padding(10.dp),

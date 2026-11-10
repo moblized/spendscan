@@ -37,6 +37,7 @@ import com.moblized.spendscan.parse.Chains
 import com.moblized.spendscan.parse.PumpReader
 import com.moblized.spendscan.parse.ReceiptField
 import com.moblized.spendscan.parse.ReceiptParser
+import com.moblized.spendscan.scan.PumpDigits
 import com.moblized.spendscan.scan.ReceiptOcr
 import com.moblized.spendscan.server.ModelList
 import com.moblized.spendscan.server.ServerConfig
@@ -206,23 +207,37 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             val today = LocalDate.now()
             val photos = app.photos.import(pages)
             val files = photos.map(app.photos::file)
-            val phone = runCatching {
-                val lines = ReceiptOcr.read(app, files)
-                withContext(Dispatchers.Default) {
-                    val rows = ReceiptParser.rows(lines)
-                    if (pump) PumpReader.parse(rows) else ReceiptParser.parse(rows, today)
+            val lines = runCatching { ReceiptOcr.read(app, files) }.getOrNull()
+            val rows = withContext(Dispatchers.Default) { lines?.let(ReceiptParser::rows).orEmpty() }
+            val text = if (pump || lines == null) null else withContext(Dispatchers.Default) { ReceiptParser.parse(rows, today) }
+
+            // A pump's digits are made of bars, which the text reader can't make out, so they have a reader of their
+            // own. It's used for a pump photo, and for a scan with nothing else on it, which may well be a pump.
+            val (phone, asPump) = if (pump || text == null || (text.totalCents == null && text.store == null && text.items.isEmpty())) {
+                val digits = withContext(Dispatchers.Default) { runCatching { files.flatMap(PumpDigits::read) }.getOrDefault(emptyList()) }
+                val display = if (lines == null && digits.isEmpty()) null else withContext(Dispatchers.Default) { PumpReader.parseDisplay(rows, digits) }
+                when {
+                    pump -> display to true
+                    display != null && digits.size >= 2 && (display.fuel != null || display.totalCents != null) -> display to true
+                    else -> text to false
                 }
-            }.getOrNull()
+            } else {
+                text to false
+            }
 
             var reading = phone
-            var note: String? = if (pump) "Read from the pump photo. Check the numbers against it." else null
+            var note: String? = when {
+                pump -> "Read from the pump photo. Check the numbers against it."
+                asPump -> "This looks like a gas pump, so it's set up as a fill-up. Check the numbers against the photo."
+                else -> null
+            }
             val config = prefs.server.value
             if (config.isSet && photos.isNotEmpty()) {
                 this@AppModel.reading.value = ReadingStage.SERVER
                 val categories = dao.categoriesNow().map { it.name }
                 val skip = CompletableDeferred<Unit>().also { skipServer = it }
                 val call = async(Dispatchers.IO) {
-                    runCatching { app.server.read(config, files, phone?.rawText, categories, today, pump) }
+                    runCatching { app.server.read(config, files, phone?.rawText, categories, today, asPump) }
                         .getOrDefault(ServerOutcome.Failed(ServerProblem.NO_USABLE_ANSWER))
                 }
                 val outcome = select<ServerOutcome?> {
@@ -245,11 +260,17 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val suggested = if (pump || reading?.fuel != null) Chains.AUTO else reading?.suggestedCategory
+            val suggested = if (asPump || reading?.fuel != null) Chains.AUTO else reading?.suggestedCategory
             val categoryId = pickCategory(reading?.store, suggested)
             val draft = Draft.fromParsed(reading, photos, today, categoryId, note, dao.lastOdometer(), dao.lastFuelType())
-            // A pump photo is always a fill-up, and it was taken just now, so today's date is right.
-            startDraft(if (pump) draft.asFillUp().copy(unsure = draft.unsure - ReceiptField.DATE) else draft)
+            // A pump is always a fill-up. A photo of one from the Fuel page was taken just now, so today's date is right.
+            startDraft(
+                when {
+                    pump -> draft.asFillUp().copy(unsure = draft.unsure - ReceiptField.DATE)
+                    asPump -> draft.asFillUp()
+                    else -> draft
+                },
+            )
             this@AppModel.reading.value = ReadingStage.NONE
         }
     }

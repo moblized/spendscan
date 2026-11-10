@@ -1,5 +1,6 @@
 package com.moblized.spendscan.parse
 
+import com.moblized.spendscan.data.FuelType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -120,5 +121,76 @@ class PumpReaderTest {
     fun theStationNeedsConfirmingUnlessItsOnThePump() {
         assertTrue(ReceiptField.STORE in read("42.70", "12.345", "3.459").unsure)
         assertFalse(ReceiptField.STORE in read("Exxon", "42.70", "12.345", "3.459").unsure)
+    }
+
+    // What the digit reader hands over: its best reading of each row, and every reading the photo allows.
+
+    private fun row(text: String, vararg others: String) = DigitRow(text, if ('?' in text) others.toList() else listOf(text) + others)
+
+    private fun display(vararg rows: DigitRow, text: List<String> = emptyList()) = PumpReader.parseDisplay(text, rows.toList())
+
+    @Test
+    fun aDigitGlareLeftOpenIsSettledByWhatAddsUp() {
+        val r = display(row("47.1?", "47.13", "47.17", "47.19"), row("12.448"), row("3.?89", "3.189", "3.789"))
+        assertEquals(4717L, r.totalCents)
+        assertEquals(ParsedFuel(12_448, 3_789), r.fuel)
+        assertFalse(ReceiptField.TOTAL in r.unsure)
+    }
+
+    @Test
+    fun oneBarReadWrongIsMended() {
+        // The top bar of the 7 in the price was lost, leaving a 1. Nothing adds up until it's put back.
+        val r = display(row("47.17"), row("12.448"), row("3.189"))
+        assertEquals(4717L, r.totalCents)
+        assertEquals(ParsedFuel(12_448, 3_789), r.fuel)
+        assertFalse(ReceiptField.TOTAL in r.unsure)
+    }
+
+    @Test
+    fun missingDecimalPointsAreWorkedOut() {
+        val r = display(row("4717"), row("12448"), row("3789"))
+        assertEquals(4717L, r.totalCents)
+        assertEquals(ParsedFuel(12_448, 3_789), r.fuel)
+        assertFalse(ReceiptField.TOTAL in r.unsure)
+    }
+
+    @Test
+    fun aDisplayWithNoPriceStillGivesTheSaleAndGallons() {
+        for (r in listOf(display(row("47.17"), row("12.448")), display(row("4717"), row("12448")))) {
+            assertEquals(4717L, r.totalCents)
+            assertEquals(ParsedFuel(12_448, null), r.fuel)
+            // Nothing to check it against, so it's marked for a look.
+            assertTrue(ReceiptField.TOTAL in r.unsure)
+        }
+    }
+
+    @Test
+    fun gallonsComeAboveThePrice() {
+        // 2.809 x 4.381 and 4.381 x 2.809 both come to 12.31. The row order says which is which.
+        val r = display(row("12.31"), row("2.809"), row("4.381"))
+        assertEquals(ParsedFuel(2_809, 4_381), r.fuel)
+        assertEquals(ParsedFuel(12_448, 3_789), display(row("47.17"), row("12.448"), row("3.789")).fuel)
+    }
+
+    @Test
+    fun aMisreadingDoesntGetToAddUpByLuck() {
+        // Off by a cent or two is no pump's sum, and neither are rounder numbers than a pump shows.
+        assertTrue(ReceiptField.TOTAL in display(row("47.17"), row("12.458"), row("3.789")).unsure)
+        assertTrue(ReceiptField.TOTAL in display(row("1??", "110", "170"), row("199"), row("3.438")).unsure)
+        // Two changes at once could be made to fit almost anything, so only one is ever tried.
+        assertTrue(ReceiptField.TOTAL in display(row("47.11"), row("12.448"), row("3.189")).unsure)
+    }
+
+    @Test
+    fun theTextReadersLabelsAndBrandStillCount() {
+        val r = display(row("47.17"), row("12.448"), row("3.789"), text = listOf("Shell", "DIESEL", "THIS SALE", "GALLONS"))
+        assertEquals("Shell", r.store)
+        assertEquals(ParsedFuel(12_448, 3_789, FuelType.DIESEL), r.fuel)
+        assertEquals(4717L, r.totalCents)
+    }
+
+    @Test
+    fun noDigitsLeavesItToTheText() {
+        assertEquals(PumpReader.parse(listOf("SALE 42.70", "GALLONS 12.345", "PRICE 3.459")), PumpReader.parseDisplay(listOf("SALE 42.70", "GALLONS 12.345", "PRICE 3.459"), emptyList()))
     }
 }

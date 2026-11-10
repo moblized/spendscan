@@ -75,8 +75,14 @@ object PumpReader {
             for (t in totals) {
                 if (t.token == g.token || t.token == p.token) continue
                 val off = abs(expected - t.milli)
-                // A two-decimal price is missing its last digit, so it gets some room.
-                val allowed = max(if (p.decimals == 3) 30L else 60L, t.milli / (if (p.decimals == 3) 400 else 150))
+                val allowed = when {
+                    // A pump's own sum is only ever out by its rounding: half a cent on the sale, and up to a thousandth
+                    // of a gallon's worth, for pumps that cut the gallons short rather than round them.
+                    p.decimals == 3 && g.decimals == 3 -> 6 + p.milli / 1000
+                    p.decimals == 3 -> max(30L, t.milli / 400)
+                    // A two-decimal price is missing its last digit, so it gets some room.
+                    else -> max(60L, t.milli / 150)
+                }
                 if (off > allowed) continue
                 var score = 0
                 if (t.decimals == 2) score += 3
@@ -88,7 +94,9 @@ object PumpReader {
                 if (SALE_WORD.containsMatchIn(rows[t.row])) score += 4
                 if (GALLON_WORD.containsMatchIn(rows[g.row])) score += 4
                 if (PRICE_WORD.containsMatchIn(rows[p.row])) score += 4
-                // With nothing else to go on, people usually pump more gallons than a gallon costs.
+                // With nothing else to go on: pumps show gallons above the price, and people usually pump more gallons
+                // than a gallon costs.
+                if (g.row < p.row) score += 2
                 if (g.milli > p.milli) score += 1
                 val current = best
                 if (current == null || score > current.score) best = Match(t, g, p, score)
@@ -108,10 +116,77 @@ object PumpReader {
         return null
     }
 
-    fun parse(rows: List<String>): ParsedReceipt {
+    /**
+     * Reads a pump from what the text reader saw ([text]: labels, the brand, numbers it could make out) and what the
+     * digit reader saw ([digits], top to bottom). Gallons times price has to come to the sale, which works like a
+     * check digit: where glare leaves a digit open to more than one reading, or one bar of a digit was missed, the
+     * reading that adds up is the right one.
+     */
+    fun parseDisplay(text: List<String>, digits: List<DigitRow>): ParsedReceipt {
+        if (digits.isEmpty()) return parse(text)
+        // A digit can be read wrong, or dropped off the end of a row, and trying other readings gives chance more goes
+        // at adding up. So here only a sale to the cent, with gallons and price to the thousandth, counts as adding up.
+        fun parse(rows: List<String>) = read(rows, exact = true)
+        val plain = parse(text + digits.map { it.text }.filter { '?' !in it })
+        if (adds(plain)) return plain
+
+        // Likeliest readings first: the fewer second and third guesses a combination needs, the sooner it's tried.
+        val rows = digits.filter { it.options.isNotEmpty() }
+        val picks = IntArray(rows.size)
+        var tried = 0
+        for (depth in 0..rows.sumOf { it.options.size - 1 }) {
+            fun search(row: Int, left: Int): ParsedReceipt? {
+                if (row == rows.size) {
+                    if (left != 0 || tried++ > MAX_TRIES) return null
+                    return parse(text + rows.indices.map { rows[it].options[picks[it]] }).takeIf(::adds)
+                }
+                for (pick in 0..minOf(left, rows[row].options.size - 1)) {
+                    picks[row] = pick
+                    search(row + 1, left - pick)?.let { return it }
+                }
+                return null
+            }
+            search(0, depth)?.let { return it }
+            if (tried > MAX_TRIES) break
+        }
+
+        // One bar of one digit read wrong. Only taken when a single change makes it add up, and only one does.
+        val likeliest = rows.map { it.options.first() }
+        val mended = HashMap<Triple<Long?, Long?, Long?>, ParsedReceipt>()
+        for ((r, row) in likeliest.withIndex()) for ((i, digit) in row.withIndex()) {
+            for (other in SegmentReader.oneBarFrom(digit)) {
+                val changed = likeliest.toMutableList().also { it[r] = row.replaceRange(i, i + 1, other.toString()) }
+                val reading = parse(text + changed)
+                if (adds(reading)) mended[Triple(reading.totalCents, reading.fuel?.gallonsMilli, reading.fuel?.priceMilli)] = reading
+            }
+        }
+        mended.values.singleOrNull()?.let { return it }
+
+        if (plain.totalCents != null || plain.fuel != null) return plain
+        // Nothing adds up and no decimal points to go by: a pump shows the sale first, to two places, then the gallons
+        // and the price, to three. Still marked for checking.
+        val byPlace = digits.mapIndexedNotNull { i, row ->
+            val places = if (i == 0) 2 else 3
+            when {
+                '?' in row.text -> null
+                '.' in row.text || row.text.length <= places -> row.text
+                else -> row.text.dropLast(places) + "." + row.text.takeLast(places)
+            }
+        }
+        return parse(text + byPlace)
+    }
+
+    /** Whether a reading found a sale, gallons and price that multiply out. */
+    private fun adds(reading: ParsedReceipt) = reading.totalCents != null && ReceiptField.TOTAL !in reading.unsure
+
+    private const val MAX_TRIES = 400
+
+    fun parse(rows: List<String>): ParsedReceipt = read(rows, exact = false)
+
+    private fun read(rows: List<String>, exact: Boolean): ParsedReceipt {
         val clean = rows.map { it.trim() }.filter { it.isNotEmpty() }
         val readings = readings(clean)
-        val match = matches(clean, readings)
+        val match = matches(clean, readings)?.takeIf { !exact || (it.total.decimals == 2 && it.gallons.decimals == 3 && it.price.decimals == 3) }
 
         var total: Long?
         var gallons: Long?
