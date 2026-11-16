@@ -36,34 +36,35 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moblized.spendscan.R
-import com.moblized.spendscan.data.Comparison
 import com.moblized.spendscan.data.DayAmount
 import com.moblized.spendscan.data.FillUpLine
+import com.moblized.spendscan.data.FuelPeriod
+import com.moblized.spendscan.data.FuelReset
 import com.moblized.spendscan.data.FuelSummary
 import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
 import com.moblized.spendscan.ui.theme.LocalSlip
 import com.moblized.spendscan.ui.theme.Type
-import java.time.YearMonth
 import java.time.format.DateTimeFormatter
-import kotlin.math.abs
 
-/** What you spend on fuel: the month on top, then each fill-up, on one slip. */
+/** What you spend on fuel: the month, week or two weeks on top, then each fill-up, on one slip. */
 @Composable
 fun FuelScreen(
     s: FuelSummary,
-    onMonth: (YearMonth) -> Unit,
+    onPeriod: (FuelPeriod) -> Unit,
     onOpen: (Long) -> Unit,
     onAdd: () -> Unit,
     onPumpPhoto: () -> Unit,
     modifier: Modifier = Modifier,
+    onChangeReset: () -> Unit = {},
 ) {
     val c = LocalSlip.current
     Column(modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            CounterIcon(R.drawable.ic_back, "Previous month", { onMonth(s.month.minusMonths(1)) })
-            Text(s.month.withYear(), style = Type.lead, color = c.onCounter, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-            CounterIcon(R.drawable.ic_forward, "Next month", { onMonth(s.month.plusMonths(1)) }, enabled = !s.isCurrent)
+            val noun = s.period.reset.noun()
+            CounterIcon(R.drawable.ic_back, "Previous $noun", { onPeriod(s.period.previous()) })
+            Text(s.period.title(s.today.year), style = Type.lead, color = c.onCounter, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+            CounterIcon(R.drawable.ic_forward, "Next $noun", { onPeriod(s.period.next()) }, enabled = !s.isCurrent)
         }
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             CounterAction("Photo of the pump", onPumpPhoto, Modifier.weight(1.35f), icon = R.drawable.ic_camera)
@@ -94,16 +95,24 @@ fun FuelScreen(
                 }
             } else {
                 item { FuelTotals(s) }
-                item { FuelYear(s, onMonth) }
+                item { FuelHistory(s, onPeriod) }
                 if (s.lines.isEmpty()) {
                     item {
                         Column(Modifier.fillMaxWidth().background(c.paper).padding(horizontal = 20.dp).padding(bottom = 12.dp)) {
-                            Text("No fill-ups in ${s.month.name()}.", style = Type.body, color = c.inkFaded)
+                            Text(noFillUps(s), style = Type.body, color = c.inkFaded)
                         }
                     }
                 }
                 items(s.lines, key = { it.row.fill.id }) { line -> FillUpEntry(line) { onOpen(line.row.fill.receiptId) } }
-                item { Spacer(Modifier.fillMaxWidth().height(10.dp).background(c.paper)) }
+                item {
+                    // The setting lives in Settings, which is a long way from here.
+                    Column(Modifier.fillMaxWidth().background(c.paper).padding(horizontal = 20.dp).padding(bottom = 14.dp)) {
+                        SlipRule()
+                        Text(fuelResetLine(s.period.reset), style = Type.small, color = c.inkFaded)
+                        Spacer(Modifier.height(6.dp))
+                        PaperButton("Change in Settings", onChangeReset, Modifier.fillMaxWidth())
+                    }
+                }
             }
             item { SlipEdge(top = false) }
         }
@@ -129,22 +138,12 @@ private fun CounterAction(text: String, onClick: () -> Unit, modifier: Modifier 
     }
 }
 
-private fun comparisonText(cmp: Comparison): String {
-    val other = if (cmp.soFar) "this point in ${cmp.otherMonth.name()}" else cmp.otherMonth.name()
-    val amount = Money.format(abs(cmp.differenceCents))
-    return when {
-        cmp.differenceCents > 0 -> "$amount more than $other"
-        cmp.differenceCents < 0 -> "$amount less than $other"
-        else -> "The same as $other"
-    }
-}
-
 @Composable
 private fun FuelTotals(s: FuelSummary) {
     val c = LocalSlip.current
     Column(Modifier.fillMaxWidth().background(c.paper).padding(horizontal = 20.dp).padding(top = 16.dp)) {
         Text(
-            if (s.isCurrent) "Fuel so far" else "Fuel in ${s.month.name()}",
+            fuelTotalsTitle(s),
             style = Type.body,
             color = c.inkFaded,
             textAlign = TextAlign.Center,
@@ -166,7 +165,7 @@ private fun FuelTotals(s: FuelSummary) {
         if (s.gallonsMilli > 0) LeaderRow("Gallons", FuelUnits.gallons(s.gallonsMilli), rowGap)
         s.averagePriceMilli?.let { LeaderRow("Average per gallon", FuelUnits.pricePerGallon(it), rowGap) }
         s.byType.singleOrNull()?.let { LeaderRow("Fuel", it.type.label, rowGap) }
-        LeaderRow("So far in ${s.month.year}", Money.format(s.yearCents), rowGap)
+        LeaderRow("So far in ${s.year}", Money.format(s.yearCents), rowGap)
         if (s.byType.size > 1) {
             SlipRule()
             Text("By fuel", style = Type.small, color = c.inkFaded)
@@ -193,27 +192,36 @@ private fun FuelTotals(s: FuelSummary) {
 
 private val SHORT_MONTH = DateTimeFormatter.ofPattern("MMM")
 
+/** A bar for each of the last twelve months, weeks or pairs of weeks. Tap one to go to it. */
 @Composable
-private fun FuelYear(s: FuelSummary, onMonth: (YearMonth) -> Unit) {
+private fun FuelHistory(s: FuelSummary, onPeriod: (FuelPeriod) -> Unit) {
     val c = LocalSlip.current
+    val reset = s.period.reset
     Column(Modifier.fillMaxWidth().background(c.paper).padding(horizontal = 20.dp)) {
         SlipRule()
-        Text("Last 12 months", style = Type.small, color = c.ink)
+        Text(fuelHistoryHeading(reset), style = Type.small, color = c.ink)
         Spacer(Modifier.height(8.dp))
         val highest = s.bars.maxByOrNull { it.cents }
-        val description = "Fuel spending for each of the last 12 months" +
-            (highest?.takeIf { it.cents > 0 }?.let { ". Highest was ${it.month.withYear()} at ${Money.format(it.cents)}" } ?: "")
-        val selected = s.bars.indexOfFirst { it.month == s.month }.takeIf { it >= 0 }?.plus(1)
-        // The same printed bars as the month's days. Tap one to go to that month.
+        val each = when (reset) {
+            FuelReset.MONTH -> "each of the last 12 months"
+            FuelReset.WEEK -> "each of the last 12 weeks"
+            FuelReset.TWO_WEEKS -> "the last 24 weeks, 2 weeks at a time"
+        }
+        val description = "Fuel spending for $each" +
+            (highest?.takeIf { it.cents > 0 }?.let { ". Highest was ${it.period.title(s.today.year)} at ${Money.format(it.cents)}" } ?: "")
+        val selected = s.bars.indexOfFirst { it.period == s.period }.takeIf { it >= 0 }?.plus(1)
+        // The same printed bars as the month's days.
         DayBarcode(
             days = s.bars.mapIndexed { i, bar -> DayAmount(i + 1, bar.cents, future = false) },
             selected = selected,
-            onSelect = { onMonth(s.bars[it - 1].month) },
+            onSelect = { onPeriod(s.bars[it - 1].period) },
             modifier = Modifier.semantics { contentDescription = description },
         )
+        // Where the first and last bars start.
+        val mark: (FuelPeriod) -> String = { if (reset == FuelReset.MONTH) it.first.format(SHORT_MONTH) else it.first.short() }
         Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(s.bars.first().month.format(SHORT_MONTH), style = Type.small, color = c.inkFaded)
-            Text(s.bars.last().month.format(SHORT_MONTH), style = Type.small, color = c.inkFaded)
+            Text(mark(s.bars.first().period), style = Type.small, color = c.inkFaded)
+            Text(mark(s.bars.last().period), style = Type.small, color = c.inkFaded)
         }
         if (s.lines.isNotEmpty() || s.allFillUps > 0) SlipRule()
     }

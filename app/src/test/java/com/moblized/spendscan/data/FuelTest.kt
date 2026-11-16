@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.util.Locale
@@ -96,8 +97,8 @@ class FuelTest {
         val rows = listOf(fill(d(3), 5000), fill(LocalDate.of(2026, 1, 5), 100), fill(LocalDate.of(2025, 11, 5), 200), fill(LocalDate.of(2025, 10, 5), 999))
         val s = FuelSummary.of(rows, nov, today)
         assertEquals(12, s.bars.size)
-        assertEquals(YearMonth.of(2025, 12), s.bars.first().month)
-        assertEquals(nov, s.bars.last().month)
+        assertEquals(FuelPeriod.month(YearMonth.of(2025, 12)), s.bars.first().period)
+        assertEquals(FuelPeriod.month(nov), s.bars.last().period)
         assertEquals(5000L, s.bars.last().cents)
         assertEquals(100L, s.bars[1].cents)
         assertEquals(5100L, s.bars.sumOf { it.cents })
@@ -281,5 +282,166 @@ class FuelTest {
         // A receipt that isn't for fuel gets none.
         val groceries = com.moblized.spendscan.parse.ReceiptParser.parse(listOf("KROGER", "MILK 3.49", "TOTAL 3.49"), today)
         assertNull(Draft.fromParsed(groceries, emptyList(), today, 1, lastFuelType = FuelType.DIESEL).fuelType)
+    }
+
+    // Starting over every week or two.
+
+    private fun day(month: Int, day: Int, year: Int = 2026) = LocalDate.of(year, month, day)
+    private val wednesday = day(11, 18)
+    private val fromSunday = FuelCycle(FuelReset.WEEK, day(11, 15).toEpochDay())
+    private val twoFromSunday = FuelCycle(FuelReset.TWO_WEEKS, day(11, 8).toEpochDay())
+
+    /** Two weeks of fill-ups and one from the week before those. */
+    private fun threeWeeks() = listOf(
+        fill(day(11, 3), 1000),
+        fill(day(11, 9), 2000),
+        fill(day(11, 11), 1500),
+        fill(day(11, 12), 4000),
+        fill(day(11, 14), 9999),
+        fill(day(11, 15), 5000),
+        fill(day(11, 18), 3000),
+    )
+
+    @Test
+    fun byDefaultTheFuelPageGoesByTheMonth() {
+        assertEquals(FuelPeriod.month(nov), FuelCycle().periodOf(today))
+        assertEquals(FuelPeriod.month(YearMonth.of(2025, 12)), FuelPeriod.month(YearMonth.of(2026, 1)).previous())
+        assertEquals(FuelPeriod.month(YearMonth.of(2026, 2)), FuelPeriod.month(YearMonth.of(2026, 1)).next())
+        assertEquals(day(2, 28), FuelPeriod.month(YearMonth.of(2026, 3)).previous().last)
+    }
+
+    @Test
+    fun weeksAreCountedFromTheStartDay() {
+        // From a Friday, like a payday.
+        val cycle = FuelCycle(FuelReset.WEEK, day(11, 13).toEpochDay())
+        assertEquals(DayOfWeek.FRIDAY, cycle.start.dayOfWeek)
+        val week = cycle.periodOf(day(11, 15))
+        assertEquals(FuelPeriod(FuelReset.WEEK, day(11, 13), day(11, 19)), week)
+        assertEquals(week, cycle.periodOf(day(11, 13)))
+        assertEquals(week, cycle.periodOf(day(11, 19)))
+        assertEquals(week.next(), cycle.periodOf(day(11, 20)))
+        // Days before the start day count back from it the same way.
+        assertEquals(week.previous(), cycle.periodOf(day(11, 12)))
+        assertEquals(day(11, 6), week.previous().first)
+        assertEquals(FuelPeriod(FuelReset.WEEK, day(12, 26, 2025), day(1, 1)), cycle.periodOf(day(1, 1)))
+        assertTrue(day(11, 19) in week)
+        assertFalse(day(11, 20) in week)
+        assertFalse(day(11, 12) in week)
+    }
+
+    @Test
+    fun twoWeeksAreCountedFromTheStartDay() {
+        val cycle = FuelCycle(FuelReset.TWO_WEEKS, day(11, 13).toEpochDay())
+        val now = cycle.periodOf(day(11, 20))
+        assertEquals(FuelPeriod(FuelReset.TWO_WEEKS, day(11, 13), day(11, 26)), now)
+        assertEquals(now, cycle.periodOf(day(11, 26)))
+        assertEquals(day(11, 27), cycle.periodOf(day(11, 27)).first)
+        assertEquals(FuelPeriod(FuelReset.TWO_WEEKS, day(10, 30), day(11, 12)), cycle.periodOf(day(11, 12)))
+        assertEquals(now.previous(), cycle.periodOf(day(11, 12)))
+        assertEquals(FuelPeriod(FuelReset.TWO_WEEKS, day(11, 27), day(12, 10)), now.next())
+        // The week picked decides which pairs of weeks go together.
+        val otherWeek = FuelCycle(FuelReset.TWO_WEEKS, day(11, 6).toEpochDay())
+        assertEquals(day(11, 6), otherWeek.periodOf(day(11, 15)).first)
+        assertEquals(day(11, 13), cycle.periodOf(day(11, 15)).first)
+    }
+
+    @Test
+    fun aFreshStartCountsFromTheStartOfThisWeek() {
+        assertEquals(day(11, 15), FuelCycle.startingThisWeek(FuelReset.WEEK, wednesday, DayOfWeek.SUNDAY).start)
+        assertEquals(day(11, 16), FuelCycle.startingThisWeek(FuelReset.WEEK, wednesday, DayOfWeek.MONDAY).start)
+        assertEquals(day(11, 15), FuelCycle.startingThisWeek(FuelReset.TWO_WEEKS, day(11, 15), DayOfWeek.SUNDAY).start)
+    }
+
+    @Test
+    fun aWeekAddsUp() {
+        val rows = threeWeeks()
+        val week = fromSunday.periodOf(wednesday)
+        val s = FuelSummary.of(rows, week, wednesday)
+        assertEquals(FuelPeriod(FuelReset.WEEK, day(11, 15), day(11, 21)), s.period)
+        assertTrue(s.isCurrent)
+        assertEquals(8000L, s.spentCents)
+        assertEquals(2, s.count)
+        assertEquals(40_000L, s.gallonsMilli)
+        assertEquals(26499L, s.yearCents)
+        assertEquals(2026, s.year)
+        assertEquals(7, s.allFillUps)
+        // Last week only up to its Wednesday: $20 and $15.
+        assertEquals(FuelComparison(week.previous(), 4500, soFar = true), s.comparison)
+    }
+
+    @Test
+    fun anEarlierWeekIsComparedInFull() {
+        val rows = threeWeeks()
+        val lastWeek = fromSunday.periodOf(wednesday).previous()
+        val s = FuelSummary.of(rows, lastWeek, wednesday)
+        assertFalse(s.isCurrent)
+        assertEquals(17499L, s.spentCents)
+        assertEquals(4, s.count)
+        assertEquals(FuelComparison(lastWeek.previous(), 16499, soFar = false), s.comparison)
+        // Nothing the week before that one, so nothing to compare with.
+        assertNull(FuelSummary.of(rows, lastWeek.previous(), wednesday).comparison)
+    }
+
+    @Test
+    fun barsCoverTwelveWeeksEndingNow() {
+        val rows = threeWeeks() + fill(day(8, 30), 700) + fill(day(8, 29), 999)
+        val week = fromSunday.periodOf(wednesday)
+        val s = FuelSummary.of(rows, week, wednesday)
+        assertEquals(12, s.bars.size)
+        assertEquals(week, s.bars.last().period)
+        assertEquals(day(8, 30), s.bars.first().period.first)
+        assertEquals(listOf(700L, 1000L, 17499L, 8000L), s.bars.map { it.cents }.filter { it > 0 })
+        // Every day lands in exactly one bar.
+        assertEquals(rows.sumOf { it.totalCents } - 999, s.bars.sumOf { it.cents })
+        // Looking back at an earlier week keeps the same bars.
+        assertEquals(s.bars, FuelSummary.of(rows, week.back(5), wednesday).bars)
+    }
+
+    @Test
+    fun twoWeeksAddUp() {
+        val rows = threeWeeks()
+        val now = twoFromSunday.periodOf(wednesday)
+        val s = FuelSummary.of(rows, now, wednesday)
+        assertEquals(FuelPeriod(FuelReset.TWO_WEEKS, day(11, 8), day(11, 21)), s.period)
+        assertEquals(25499L, s.spentCents)
+        assertEquals(6, s.count)
+        // Ten days in. Ten days into the two weeks before was November 4.
+        assertEquals(FuelComparison(now.previous(), 24499, soFar = true), s.comparison)
+        assertEquals(12, s.bars.size)
+        assertEquals(day(6, 7), s.bars.first().period.first)
+        assertEquals(now, s.bars.last().period)
+        assertEquals(listOf(1000L, 25499L), s.bars.takeLast(2).map { it.cents })
+    }
+
+    @Test
+    fun aWeekOverNewYearCountsTowardTheYearItEndsIn() {
+        val rows = listOf(fill(day(12, 28), 4000), fill(day(1, 1, 2027), 3000), fill(day(6, 1), 500))
+        val week = fromSunday.periodOf(day(1, 2, 2027))
+        assertEquals(FuelPeriod(FuelReset.WEEK, day(12, 27), day(1, 2, 2027)), week)
+        // While it's going, and looking back at it later.
+        for (now in listOf(day(1, 2, 2027), day(1, 10, 2027))) {
+            val s = FuelSummary.of(rows, week, now)
+            assertEquals(7000L, s.spentCents)
+            assertEquals(2027, s.year)
+            assertEquals(3000L, s.yearCents)
+        }
+        // Still in December, the year is the one today is in.
+        val december = FuelSummary.of(rows, week, day(12, 29))
+        assertEquals(2026, december.year)
+        assertEquals(4500L, december.yearCents)
+    }
+
+    @Test
+    fun aWeekSplitsByFuel() {
+        val rows = listOf(
+            fill(day(11, 15), 9000, gallons = 25_000, type = FuelType.DIESEL),
+            fill(day(11, 17), 4000, gallons = 10_000, type = FuelType.PREMIUM),
+            fill(day(11, 14), 8000, gallons = 20_000, type = FuelType.DIESEL),
+        )
+        val s = FuelSummary.of(rows, fromSunday.periodOf(wednesday), wednesday)
+        assertEquals(listOf(FuelType.DIESEL, FuelType.PREMIUM), s.byType.map { it.type })
+        assertEquals(9000L, s.byType.first().spentCents)
+        // Mileage still runs across every fill-up, not just this week's.
+        assertEquals(listOf(day(11, 17), day(11, 15)), s.lines.map { it.row.date })
     }
 }

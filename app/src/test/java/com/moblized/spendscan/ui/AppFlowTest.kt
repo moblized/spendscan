@@ -27,9 +27,13 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.moblized.spendscan.App
 import com.moblized.spendscan.MainActivity
+import com.moblized.spendscan.data.FuelCycle
+import com.moblized.spendscan.data.FuelReset
+import com.moblized.spendscan.data.FuelSummary
 import com.moblized.spendscan.data.FuelType
 import com.moblized.spendscan.data.FuelUnits
 import com.moblized.spendscan.data.Money
+import com.moblized.spendscan.data.Prefs
 import com.moblized.spendscan.paperless.FakePaperless
 import com.moblized.spendscan.server.FakeHttpServer
 import com.moblized.spendscan.server.ServerConfig
@@ -38,6 +42,7 @@ import org.json.JSONObject
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -603,6 +608,69 @@ class AppFlowTest {
     }
 
     /** The real flow past the camera app: a pump photo arriving back in the app. */
+    @Test
+    fun theFuelPageCanStartOverEveryWeekOrTwo() {
+        val today = LocalDate.now()
+        tap("Fuel")
+        tap("Add by hand")
+        waitFor("Add a fill-up")
+        field(0).performTextInput("Shell")
+        field(1).performTextInput("40")
+        tap("Save receipt")
+        waitFor("Saved Shell, ${money(4000)}.")
+        // By the month until it's changed.
+        waitFor("Fuel so far")
+        waitFor("Last 12 months")
+        waitFor("This page starts over every month.")
+
+        tap("Change in Settings")
+        waitFor("Fuel page")
+        waitFor("Your fuel totals start again on the 1st of each month.")
+        tap("Week")
+        val weekly = app.prefs.fuelCycle.value
+        assertEquals(FuelReset.WEEK, weekly.reset)
+        // Weeks start on the day this phone's calendar starts them, so the first one is the week today is in.
+        assertTrue(today.toEpochDay() - weekly.startEpochDay in 0..6)
+        waitFor(fuelCycleNote(weekly, today))
+        tapIcon("Back")
+
+        val week = weekly.periodOf(today)
+        waitFor("Fuel so far this week")
+        waitFor(week.title(today.year))
+        waitFor("Last 12 weeks")
+        waitFor("This page starts over every week.")
+        waitFor(money(4000), substring = true)
+        // Nothing is thrown away: last week is one arrow back, and empty.
+        tapIcon("Previous week")
+        waitFor(week.previous().title(today.year))
+        waitFor(noFillUps(FuelSummary.of(emptyList(), week.previous(), today)))
+        tapIcon("Next week")
+        waitFor("Fuel so far this week")
+
+        // Two weeks, counted from the same day. Setting the start day it already has changes nothing.
+        tap("Change in Settings")
+        tap("2 weeks")
+        waitFor(fuelCycleNote(weekly.copy(reset = FuelReset.TWO_WEEKS), today))
+        tap("Change the start day")
+        tap("Set date")
+        waitGone("Set date")
+        assertEquals(FuelCycle(FuelReset.TWO_WEEKS, weekly.startEpochDay), app.prefs.fuelCycle.value)
+        tapIcon("Back")
+        waitFor("Fuel so far in these 2 weeks")
+        waitFor("Last 24 weeks, 2 to a bar")
+        waitFor(weekly.copy(reset = FuelReset.TWO_WEEKS).periodOf(today).title(today.year))
+
+        // The choice is kept for the next time the app starts.
+        assertEquals(FuelCycle(FuelReset.TWO_WEEKS, weekly.startEpochDay), Prefs(app).fuelCycle.value)
+
+        // A new start day moves the stretches. Yesterday's start puts the fill-up from today in the second day of one.
+        scenario.onActivity {
+            ViewModelProvider(it)[AppModel::class.java].setFuelCycle(FuelCycle(FuelReset.WEEK, today.minusDays(1).toEpochDay()))
+        }
+        waitFor("Fuel so far this week")
+        waitFor(FuelCycle(FuelReset.WEEK, today.minusDays(1).toEpochDay()).periodOf(today).title(today.year))
+    }
+
     private fun pumpPhotoTaken() {
         val photo = File(app.cacheDir, "pump.jpg")
         photo.outputStream().use { Bitmap.createBitmap(120, 240, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.JPEG, 80, it) }

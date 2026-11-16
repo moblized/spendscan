@@ -346,7 +346,7 @@ private fun ItemRow(item: DraftItem, onChange: (DraftItem) -> Unit, onRemove: ()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PickDate(date: LocalDate, onPick: (LocalDate) -> Unit, onDismiss: () -> Unit) {
+internal fun PickDate(date: LocalDate, onPick: (LocalDate) -> Unit, onDismiss: () -> Unit) {
     val c = LocalSlip.current
     val state = rememberDatePickerState(initialSelectedDateMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
     DatePickerDialog(

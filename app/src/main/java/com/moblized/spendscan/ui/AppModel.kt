@@ -15,6 +15,8 @@ import com.moblized.spendscan.data.Category
 import com.moblized.spendscan.data.Draft
 import com.moblized.spendscan.data.FALLBACK_CATEGORY
 import com.moblized.spendscan.data.FillUp
+import com.moblized.spendscan.data.FuelCycle
+import com.moblized.spendscan.data.FuelPeriod
 import com.moblized.spendscan.data.FuelSummary
 import com.moblized.spendscan.data.ItemHit
 import com.moblized.spendscan.data.ItemStats
@@ -447,14 +449,35 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     fun fillUp(id: Long): Flow<FillUp?> = dao.fillUp(id)
 
     // Fuel
-    val fuelMonth = MutableStateFlow(YearMonth.now())
+    val fuelCycle: StateFlow<FuelCycle> = prefs.fuelCycle
 
-    val fuelSummary: StateFlow<FuelSummary?> = combine(dao.fillUps(), fuelMonth) { rows, m ->
-        withContext(Dispatchers.Default) { FuelSummary.of(rows, m, LocalDate.now()) }
+    /** A day in the stretch being looked at. Null is the one today is in, so the page moves on when a new one starts. */
+    private val fuelDay = MutableStateFlow<LocalDate?>(null)
+    private val currentDay = MutableStateFlow(LocalDate.now())
+
+    /** Called when the app comes back to the front, in case the day changed while it was away. */
+    fun refreshToday() {
+        currentDay.value = LocalDate.now()
+    }
+
+    val fuelSummary: StateFlow<FuelSummary?> = combine(dao.fillUps(), fuelDay, prefs.fuelCycle, currentDay) { rows, day, cycle, now ->
+        withContext(Dispatchers.Default) { FuelSummary.of(rows, cycle.periodOf(day ?: now), now) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    fun showFuelMonth(m: YearMonth) {
-        if (!m.isAfter(YearMonth.now())) fuelMonth.value = m
+    fun showFuelPeriod(period: FuelPeriod) = showFuelDay(period.first)
+
+    private fun showFuelDay(day: LocalDate) {
+        val now = LocalDate.now()
+        val period = prefs.fuelCycle.value.periodOf(day)
+        if (period.first.isAfter(now)) return
+        currentDay.value = now
+        fuelDay.value = if (now in period) null else period.first
+    }
+
+    /** Changes how often the Fuel page starts over, and goes back to the stretch today is in. */
+    fun setFuelCycle(cycle: FuelCycle) {
+        prefs.setFuelCycle(cycle)
+        fuelDay.value = null
     }
 
     // Calculator
@@ -518,7 +541,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             if (d.receiptId == null) {
                 // Show where it landed.
                 if (d.isFillUp) {
-                    fuelMonth.value = receiptMonth
+                    showFuelDay(receipt.date)
                     tab.value = Tab.FUEL
                 } else {
                     month.value = receiptMonth

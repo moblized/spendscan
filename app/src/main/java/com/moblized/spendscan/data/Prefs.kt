@@ -8,6 +8,9 @@ import com.moblized.spendscan.paperless.SyncResult
 import com.moblized.spendscan.server.ServerConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.time.LocalDate
+import java.time.temporal.WeekFields
+import java.util.Locale
 
 enum class ThemeChoice { SYSTEM, LIGHT, DARK }
 
@@ -25,6 +28,25 @@ class Prefs(context: Context) {
 
     private val _overallBudget = MutableStateFlow(p.getLong("overallBudget", -1).takeIf { it >= 0 })
     val overallBudget: StateFlow<Long?> = _overallBudget
+
+    // How often the Fuel page starts over. Until a week or two is chosen, they'd count from the start of this week.
+    private val _fuelCycle = MutableStateFlow(
+        FuelCycle.startingThisWeek(FuelReset.MONTH, LocalDate.now(), WeekFields.of(Locale.getDefault()).firstDayOfWeek).let { fresh ->
+            FuelCycle(
+                runCatching { FuelReset.valueOf(p.getString("fuelReset", null) ?: "MONTH") }.getOrDefault(FuelReset.MONTH),
+                if (p.contains("fuelStart")) p.getLong("fuelStart", fresh.startEpochDay) else fresh.startEpochDay,
+            )
+        },
+    )
+    val fuelCycle: StateFlow<FuelCycle> = _fuelCycle
+
+    fun setFuelCycle(cycle: FuelCycle) {
+        _fuelCycle.value = cycle
+        p.edit {
+            putString("fuelReset", cycle.reset.name)
+            putLong("fuelStart", cycle.startEpochDay)
+        }
+    }
 
     // Kept in its own file so the key stays out of Google backups.
     private val s = context.getSharedPreferences("server", Context.MODE_PRIVATE)

@@ -76,6 +76,12 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handle(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // The Fuel page starts over by the calendar, and the app may have been left open since yesterday.
+        model.refreshToday()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)

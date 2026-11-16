@@ -28,6 +28,8 @@ import com.moblized.spendscan.data.Category
 import com.moblized.spendscan.data.Draft
 import com.moblized.spendscan.data.FillUp
 import com.moblized.spendscan.data.FillUpRow
+import com.moblized.spendscan.data.FuelCycle
+import com.moblized.spendscan.data.FuelReset
 import com.moblized.spendscan.data.FuelSummary
 import com.moblized.spendscan.data.FuelType
 import com.moblized.spendscan.data.ItemHit
@@ -342,6 +344,54 @@ class ScreenshotTest {
             FuelScreen(FuelSummary.of(emptyList(), nov, today), {}, {}, {}, {}, Modifier.weight(1f))
             BottomBar(Tab.FUEL, {}, {})
         }
+    }
+
+    // Starting over every Sunday, and every other Sunday.
+    private val weekly = FuelCycle(FuelReset.WEEK, nov.atDay(15).toEpochDay())
+    private val twoWeekly = FuelCycle(FuelReset.TWO_WEEKS, nov.atDay(15).toEpochDay())
+
+    @Test
+    @Config(qualifiers = "w412dp-h1300dp-xxhdpi")
+    fun fuelByTheWeek() = shoot("30_fuel_weekly") {
+        Column(Modifier.fillMaxSize()) {
+            FuelScreen(FuelSummary.of(fuelRows, weekly.periodOf(today), today), {}, {}, {}, {}, Modifier.weight(1f))
+            BottomBar(Tab.FUEL, {}, {})
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h1300dp-xxhdpi")
+    fun fuelTwoWeeksBack() = shoot("31_fuel_two_weeks", dark = true) {
+        Column(Modifier.fillMaxSize()) {
+            FuelScreen(FuelSummary.of(fuelRows, twoWeekly.periodOf(today).previous(), today), {}, {}, {}, {}, Modifier.weight(1f))
+            BottomBar(Tab.FUEL, {}, {})
+        }
+    }
+
+    @Test
+    fun fuelWeekWithNothingYet() = shoot("32_fuel_week_empty") {
+        Column(Modifier.fillMaxSize()) {
+            FuelScreen(FuelSummary.of(fuelRows.filter { it.dateEpochDay < nov.atDay(15).toEpochDay() }, weekly.periodOf(today), today), {}, {}, {}, {}, Modifier.weight(1f))
+            BottomBar(Tab.FUEL, {}, {})
+        }
+    }
+
+    @Test
+    fun settingsFuelByTheWeek() = shoot("33_settings_fuel_week") {
+        SettingsScreen(
+            ThemeChoice.SYSTEM, {}, 51, {}, "1.0.1", null, {},
+            ServerConfig(), {}, emptyList(), null, {},
+            fuelCycle = weekly, today = today,
+        )
+    }
+
+    @Test
+    fun settingsFuelEveryOtherFriday() = shoot("34_settings_fuel_two_weeks", dark = true) {
+        SettingsScreen(
+            ThemeChoice.SYSTEM, {}, 51, {}, "1.0.1", null, {},
+            ServerConfig(), {}, emptyList(), null, {},
+            fuelCycle = FuelCycle(FuelReset.TWO_WEEKS, nov.atDay(6).toEpochDay()), today = today,
+        )
     }
 
     private val calc = listOf("12.50", "+", "3.49", "=", "45.20", "×", "18", "%", "=", "84.20", "+", "30.10", "+", "12")

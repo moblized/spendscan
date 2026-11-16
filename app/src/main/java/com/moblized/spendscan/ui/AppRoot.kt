@@ -142,10 +142,11 @@ private fun FuelRoute(model: AppModel, onPumpPhoto: () -> Unit) {
     val s = summary ?: return
     FuelScreen(
         s = s,
-        onMonth = model::showFuelMonth,
+        onPeriod = model::showFuelPeriod,
         onOpen = { model.open(Route.Detail(it)) },
         onAdd = model::addFillUp,
         onPumpPhoto = onPumpPhoto,
+        onChangeReset = { model.open(Route.Settings) },
     )
 }
 
@@ -209,6 +210,7 @@ private fun SettingsRoute(model: AppModel) {
     val serverModels by model.serverModels.collectAsStateWithLifecycle()
     val serverStatus by model.serverStatus.collectAsStateWithLifecycle()
     val urlRevision by model.serverUrlRevision.collectAsStateWithLifecycle()
+    val fuelCycle by model.fuelCycle.collectAsStateWithLifecycle()
     val paperless by model.paperless.collectAsStateWithLifecycle()
     val paperlessCounts by model.paperlessCounts.collectAsStateWithLifecycle()
     val paperlessRun by model.paperlessRun.collectAsStateWithLifecycle()
@@ -239,6 +241,8 @@ private fun SettingsRoute(model: AppModel) {
         serverUrlRevision = urlRevision,
         paperless = PaperlessView(paperless, paperlessCounts, paperlessRun, paperlessStatus),
         paperlessActions = paperlessActions,
+        fuelCycle = fuelCycle,
+        onFuelCycle = model::setFuelCycle,
     )
 }
 

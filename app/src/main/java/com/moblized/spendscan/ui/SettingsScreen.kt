@@ -29,6 +29,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.moblized.spendscan.R
+import com.moblized.spendscan.data.FuelCycle
+import com.moblized.spendscan.data.FuelReset
 import com.moblized.spendscan.data.PaperlessRun
 import com.moblized.spendscan.data.ThemeChoice
 import com.moblized.spendscan.data.UploadCounts
@@ -37,6 +39,7 @@ import com.moblized.spendscan.paperless.SyncProblem
 import com.moblized.spendscan.server.ServerConfig
 import com.moblized.spendscan.ui.theme.LocalSlip
 import com.moblized.spendscan.ui.theme.Type
+import java.time.LocalDate
 
 /** Where sending to Paperless-ngx stands, for the settings page. */
 data class PaperlessView(
@@ -74,6 +77,9 @@ fun SettingsScreen(
     serverUrlRevision: Int = 0,
     paperless: PaperlessView = PaperlessView(),
     paperlessActions: PaperlessActions = PaperlessActions(),
+    fuelCycle: FuelCycle = FuelCycle(),
+    onFuelCycle: (FuelCycle) -> Unit = {},
+    today: LocalDate = LocalDate.now(),
 ) {
     val c = LocalSlip.current
     Column(modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -94,6 +100,10 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text("Phone follows your phone's dark mode setting. The app icon changes to match.", style = Type.small, color = c.inkFaded)
+
+                SlipRule()
+
+                FuelSection(fuelCycle, onFuelCycle, today)
 
                 SlipRule()
 
@@ -222,6 +232,51 @@ private fun ServerSection(
     }
     Spacer(Modifier.height(10.dp))
     PaperField("Model", server.model, { onServer(server.copy(model = it.trim())) }, placeholder = "qwen3-vl:8b")
+}
+
+/** How often the Fuel page starts over, and from which day. */
+@Composable
+private fun FuelSection(cycle: FuelCycle, onChange: (FuelCycle) -> Unit, today: LocalDate) {
+    val c = LocalSlip.current
+    var picking by rememberSaveable { mutableStateOf(false) }
+
+    Text("Fuel page", style = Type.strong, color = c.ink)
+    Spacer(Modifier.height(4.dp))
+    Text("Starts over every", style = Type.small, color = c.inkFaded)
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FuelReset.entries.forEach { reset ->
+            Chip(reset.label, cycle.reset == reset, { onChange(cycle.copy(reset = reset)) }, onPaper = true, modifier = Modifier.weight(1f))
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(fuelCycleNote(cycle, today), style = Type.small, color = c.ink)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        "No fill-ups are deleted. The arrows at the top of the Fuel page go back to earlier ones.",
+        style = Type.small,
+        color = c.inkFaded,
+    )
+    if (cycle.reset != FuelReset.MONTH) {
+        Spacer(Modifier.height(10.dp))
+        PaperButton("Change the start day", { picking = true }, Modifier.fillMaxWidth())
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Pick any day one should start on, like a payday. The rest are counted from it.",
+            style = Type.small,
+            color = c.inkFaded,
+        )
+    }
+    if (picking) {
+        PickDate(
+            cycle.periodOf(today).first,
+            onPick = {
+                onChange(cycle.copy(startEpochDay = it.toEpochDay()))
+                picking = false
+            },
+            onDismiss = { picking = false },
+        )
+    }
 }
 
 /** Copies of your receipts in your own Paperless-ngx. */

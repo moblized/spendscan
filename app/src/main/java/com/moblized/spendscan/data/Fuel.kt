@@ -1,8 +1,10 @@
 package com.moblized.spendscan.data
 
 import java.text.NumberFormat
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
 /** Gallons and prices per gallon go to three decimals on a pump, so they're kept in thousandths. */
@@ -98,30 +100,89 @@ enum class FuelType(val label: String, val word: String) {
     }
 }
 
-/** One fuel type's share of a month. */
+/** One fuel type's share of a month, a week or two weeks. */
 data class FuelTypeLine(val type: FuelType, val spentCents: Long, val gallonsMilli: Long, val averagePriceMilli: Long?, val count: Int)
 
 data class FillUpLine(val row: FillUpRow, val mpg: Double?)
 
-data class FuelMonthBar(val month: YearMonth, val cents: Long)
+/** How often the Fuel page starts over. */
+enum class FuelReset(val label: String, val days: Int) {
+    MONTH("Month", 0),
+    WEEK("Week", 7),
+    TWO_WEEKS("2 weeks", 14),
+}
 
-/** One month of fill-ups, with the mileage worked out across all of them. */
+/**
+ * How the Fuel page splits up time. Weeks, and stretches of two weeks, are counted from [startEpochDay], forwards and
+ * back, so it only matters for which day of the week they start on, and for two weeks, which week.
+ */
+data class FuelCycle(val reset: FuelReset = FuelReset.MONTH, val startEpochDay: Long = 0) {
+    val start: LocalDate get() = LocalDate.ofEpochDay(startEpochDay)
+
+    /** The stretch [day] falls in. */
+    fun periodOf(day: LocalDate): FuelPeriod {
+        if (reset == FuelReset.MONTH) return FuelPeriod.month(YearMonth.from(day))
+        val length = reset.days.toLong()
+        val first = startEpochDay + Math.floorDiv(day.toEpochDay() - startEpochDay, length) * length
+        return FuelPeriod(reset, LocalDate.ofEpochDay(first), LocalDate.ofEpochDay(first + length - 1))
+    }
+
+    companion object {
+        /** Counting from the start of the week [today] is in. */
+        fun startingThisWeek(reset: FuelReset, today: LocalDate, weekStartsOn: DayOfWeek) =
+            FuelCycle(reset, today.with(TemporalAdjusters.previousOrSame(weekStartsOn)).toEpochDay())
+    }
+}
+
+/** One stretch of the Fuel page: a month, a week or two weeks, from [first] to [last]. */
+data class FuelPeriod(val reset: FuelReset, val first: LocalDate, val last: LocalDate) {
+    operator fun contains(day: LocalDate) = !day.isBefore(first) && !day.isAfter(last)
+
+    /** The stretch [count] before this one, or after it when [count] is negative. */
+    fun back(count: Int): FuelPeriod = when (reset) {
+        FuelReset.MONTH -> month(YearMonth.from(first).minusMonths(count.toLong()))
+        else -> FuelPeriod(reset, first.minusDays(reset.days.toLong() * count), last.minusDays(reset.days.toLong() * count))
+    }
+
+    fun previous() = back(1)
+    fun next() = back(-1)
+
+    companion object {
+        fun month(month: YearMonth) = FuelPeriod(FuelReset.MONTH, month.atDay(1), month.atEndOfMonth())
+    }
+}
+
+data class FuelBar(val period: FuelPeriod, val cents: Long)
+
+/** How this stretch compares with the one before it. */
+data class FuelComparison(
+    val other: FuelPeriod,
+    /** Positive means more than the one before. */
+    val differenceCents: Long,
+    /** Compared only up to the same day into it, because this one isn't over. */
+    val soFar: Boolean,
+)
+
+/** One stretch of fill-ups, with the mileage worked out across all of them. */
 data class FuelSummary(
-    val month: YearMonth,
+    val period: FuelPeriod,
+    val today: LocalDate,
     val isCurrent: Boolean,
     val spentCents: Long,
     val gallonsMilli: Long,
     val count: Int,
     val averagePriceMilli: Long?,
-    val comparison: Comparison?,
+    val comparison: FuelComparison?,
+    val year: Int,
     val yearCents: Long,
     val averageMpg: Double?,
     val lastMpg: Double?,
     val centsPerMile: Double?,
-    val bars: List<FuelMonthBar>,
+    /** The last twelve stretches, ending with the one today is in. */
+    val bars: List<FuelBar>,
     val lines: List<FillUpLine>,
     val allFillUps: Int,
-    /** The month's fill-ups by what went in the tank, most spent first. Fill-ups with no type are left out. */
+    /** Its fill-ups by what went in the tank, most spent first. Fill-ups with no type are left out. */
     val byType: List<FuelTypeLine> = emptyList(),
 ) {
     companion object {
@@ -178,39 +239,47 @@ data class FuelSummary(
             )
         }
 
-        fun of(rows: List<FillUpRow>, month: YearMonth, today: LocalDate): FuelSummary {
-            val current = YearMonth.from(today)
-            val isCurrent = month == current
+        fun of(rows: List<FillUpRow>, month: YearMonth, today: LocalDate) = of(rows, FuelPeriod.month(month), today)
+
+        fun of(rows: List<FillUpRow>, period: FuelPeriod, today: LocalDate): FuelSummary {
+            val isCurrent = today in period
             val mileage = mileage(rows)
-            val inMonth = rows.filter { YearMonth.from(it.date) == month }
+            val inMonth = rows.filter { it.date in period }
             val spent = inMonth.sumOf { it.totalCents }
             val measured = inMonth.filter { (it.fill.gallonsMilli ?: 0) > 0 }
             val gallons = measured.sumOf { it.fill.gallonsMilli ?: 0 }
 
-            val before = rows.filter { YearMonth.from(it.date) == month.minusMonths(1) }
+            val last = period.previous()
+            val before = rows.filter { it.date in last }
             val comparison = if (before.isEmpty()) null else {
-                val cutoff = minOf(today.dayOfMonth, month.minusMonths(1).lengthOfMonth())
-                val stretch = if (isCurrent) before.filter { it.date.dayOfMonth <= cutoff } else before
-                Comparison(month.minusMonths(1), spent - stretch.sumOf { it.totalCents }, soFar = isCurrent)
+                // The same number of days into the one before as today is into this one.
+                val cutoff = last.first.plusDays(today.toEpochDay() - period.first.toEpochDay())
+                val stretch = if (isCurrent) before.filter { !it.date.isAfter(cutoff) } else before
+                FuelComparison(last, spent - stretch.sumOf { it.totalCents }, soFar = isCurrent)
             }
 
-            val byMonth = rows.groupBy { YearMonth.from(it.date) }
-            val lastBar = maxOf(current, month)
+            // A week can run over New Year. It counts toward the year it ends in, or this year if it's still going.
+            val year = if (isCurrent) today.year else period.last.year
+            // The bars end with the stretch today is in.
+            val now = FuelCycle(period.reset, period.first.toEpochDay()).periodOf(today)
+            val current = if (period.first.isAfter(now.first)) period else now
             return FuelSummary(
-                month = month,
+                period = period,
+                today = today,
                 isCurrent = isCurrent,
                 spentCents = spent,
                 gallonsMilli = gallons,
                 count = inMonth.size,
                 averagePriceMilli = FuelUnits.paidPerGallon(measured.sumOf { it.totalCents }, gallons),
                 comparison = comparison,
-                yearCents = rows.filter { it.date.year == month.year }.sumOf { it.totalCents },
+                year = year,
+                yearCents = rows.filter { it.date.year == year }.sumOf { it.totalCents },
                 averageMpg = mileage.average,
                 lastMpg = mileage.last,
                 centsPerMile = mileage.centsPerMile,
-                bars = (11L downTo 0L).map { back ->
-                    val m = lastBar.minusMonths(back)
-                    FuelMonthBar(m, byMonth[m].orEmpty().sumOf { it.totalCents })
+                bars = (11 downTo 0).map { back ->
+                    val bar = current.back(back)
+                    FuelBar(bar, rows.filter { it.date in bar }.sumOf { it.totalCents })
                 },
                 lines = inMonth
                     .sortedWith(compareByDescending<FillUpRow> { it.dateEpochDay }.thenByDescending { it.fill.id })
