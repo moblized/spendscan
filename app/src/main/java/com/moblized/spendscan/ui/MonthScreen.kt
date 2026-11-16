@@ -266,9 +266,12 @@ private fun DaySection(s: MonthSummary, onDay: (Int) -> Unit) {
 /**
  * One bar per day, tall when more was spent, printed like the barcode at the bottom of a receipt.
  * Tap or drag across it to read a day.
+ *
+ * With a month of thin bars the picked one gets a highlighter stripe the whole height. With only a dozen [wide] bars
+ * that stripe would pass for the tallest bar, so there the highlighter wraps the bar instead, however short it is.
  */
 @Composable
-fun DayBarcode(days: List<DayAmount>, selected: Int?, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun DayBarcode(days: List<DayAmount>, selected: Int?, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, wide: Boolean = false) {
     val c = LocalSlip.current
     val top = max(1L, days.maxOfOrNull { it.cents } ?: 1L)
     Canvas(
@@ -287,18 +290,24 @@ fun DayBarcode(days: List<DayAmount>, selected: Int?, onSelect: (Int) -> Unit, m
         val slot = size.width / days.size
         val gap = 2.dp.toPx()
         val bar = slot - gap
+        // Room for the highlighter to show around a wide bar, even the tallest.
+        val wrap = if (wide) 5.dp.toPx() else 0f
+        val inset = if (wide) 4.dp.toPx() else 0f
+        val room = size.height - wrap
         days.forEachIndexed { i, d ->
-            val x = i * slot + gap / 2
-            if (selected == d.day) {
-                drawRect(c.highlighter, Offset(i * slot, 0f), Size(slot, size.height))
+            val picked = selected == d.day
+            val h = if (d.cents > 0) max(4.dp.toPx(), room * d.cents / top) else 2.dp.toPx()
+            if (picked) {
+                val stripe = if (wide) h + wrap else size.height
+                drawRect(c.highlighter, Offset(i * slot, size.height - stripe), Size(slot, stripe))
             }
+            val x = i * slot + gap / 2 + if (picked) inset else 0f
+            val width = bar - if (picked) 2 * inset else 0f
             when {
-                d.cents > 0 -> {
-                    val h = max(4.dp.toPx(), size.height * d.cents / top)
-                    drawRect(if (selected == d.day) c.onHighlighter else c.ink, Offset(x, size.height - h), Size(bar, h))
-                }
-                d.future -> drawRect(c.inkFaded.copy(alpha = 0.3f), Offset(x, size.height - 1.dp.toPx()), Size(bar, 1.dp.toPx()))
-                else -> drawRect(c.inkFaded.copy(alpha = 0.6f), Offset(x, size.height - 2.dp.toPx()), Size(bar, 2.dp.toPx()))
+                d.cents > 0 -> drawRect(if (picked) c.onHighlighter else c.ink, Offset(x, size.height - h), Size(width, h))
+                d.future -> drawRect(c.inkFaded.copy(alpha = 0.3f), Offset(x, size.height - 1.dp.toPx()), Size(width, 1.dp.toPx()))
+                picked && wide -> drawRect(c.onHighlighter.copy(alpha = 0.6f), Offset(x, size.height - h), Size(width, h))
+                else -> drawRect(c.inkFaded.copy(alpha = 0.6f), Offset(x, size.height - 2.dp.toPx()), Size(width, 2.dp.toPx()))
             }
         }
     }

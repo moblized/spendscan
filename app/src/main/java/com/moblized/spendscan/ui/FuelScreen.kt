@@ -216,6 +216,7 @@ private fun FuelHistory(s: FuelSummary, onPeriod: (FuelPeriod) -> Unit) {
             selected = selected,
             onSelect = { onPeriod(s.bars[it - 1].period) },
             modifier = Modifier.semantics { contentDescription = description },
+            wide = true,
         )
         // Where the first and last bars start.
         val mark: (FuelPeriod) -> String = { if (reset == FuelReset.MONTH) it.first.format(SHORT_MONTH) else it.first.short() }
